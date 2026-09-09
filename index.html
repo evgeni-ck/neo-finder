@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>neo-finder</title>
+<style>
+:root{
+  color-scheme: light;
+  --surface:#fcfcfb; --panel:#ffffff; --panel-2:#f6f5f2;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#8b8a85;
+  --line:#e6e5e1; --line-2:#d3d2cc;
+  --accent:#eb6834; --accent-ink:#a8410f;
+  --band-map:#fdf3cf; --band-flat:#f0efec;
+  --trace:#1c5cab;
+  --good:#0ca30c; --crit:#d03b3b;
+  --s1:#cde2fb; --s4:#86b6ef; --s7:#3987e5; --s10:#1c5cab; --s13:#0d366b;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --surface:#1a1a19; --panel:#222221; --panel-2:#2a2a28;
+    --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8b8a85;
+    --line:#383835; --line-2:#4a4a46;
+    --accent:#d95926; --accent-ink:#f08a5d;
+    --band-map:#3a3520; --band-flat:#2e2e2b;
+    --trace:#5598e7;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --surface:#1a1a19; --panel:#222221; --panel-2:#2a2a28;
+  --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8b8a85;
+  --line:#383835; --line-2:#4a4a46;
+  --accent:#d95926; --accent-ink:#f08a5d;
+  --band-map:#3a3520; --band-flat:#2e2e2b;
+  --trace:#5598e7;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+code,kbd,.mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+a{color:var(--trace)}
+h2{font-size:15px;margin:0 0 8px;font-weight:650}
+h3{font-size:13px;margin:16px 0 6px;font-weight:650;color:var(--ink-2)}
+header{padding:16px 20px 12px;border-bottom:1px solid var(--line);
+  display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;background:var(--panel)}
+.grow{flex:1 1 auto;min-width:200px}
+.sub{color:var(--ink-3);font-size:12.5px;margin-top:3px}
+button,select,label.btn{font:inherit;font-size:13px;padding:6px 11px;border-radius:7px;
+  border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);cursor:pointer}
+button:hover,label.btn:hover{border-color:var(--ink-3)}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--trace);border-color:var(--trace);color:#fff}
+input[type=file]{display:none}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+.bar .sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+.chip{font-size:12px;padding:3px 8px;border-radius:999px;background:var(--panel-2);
+  border:1px solid var(--line);color:var(--ink-2)}
+.chip b{color:var(--ink);font-weight:650}
+main{padding:16px 20px 60px}
+/* Below the minimum readable plot width the strips scroll sideways rather than
+   squashing; wide screens just get a wider canvas. */
+#stripwrap{overflow-x:auto;overflow-y:hidden}
+#strips{display:flex;flex-direction:column;gap:6px;width:max-content;min-width:100%}
+#strips canvas{display:block;border-radius:6px;cursor:crosshair}
+#empty{margin:22vh auto;color:var(--ink-2);text-align:center}
+label.btn.big{font-size:16px;padding:13px 26px;border-radius:10px}
+.tablewrap{overflow-x:auto}
+.tablewrap table.rep{min-width:600px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2);margin:2px 0 12px}
+.legend i{display:inline-block;width:24px;height:11px;border:1px solid var(--line-2);
+  vertical-align:-1px;margin-right:6px;border-radius:2px}
+#tip{position:fixed;z-index:40;pointer-events:none;display:none;max-width:320px;
+  background:var(--panel);border:1px solid var(--line-2);border-radius:8px;
+  padding:8px 10px;font-size:12px;box-shadow:0 6px 22px rgba(0,0,0,.18)}
+#tip .t{font-weight:650;margin-bottom:3px}
+#tip .r{color:var(--ink-2)}
+/* drawer + modal */
+#drawer{position:fixed;top:0;right:0;width:min(880px,96vw);height:100%;z-index:50;
+  background:var(--panel);border-left:1px solid var(--line-2);
+  box-shadow:-12px 0 40px rgba(0,0,0,.22);transform:translateX(100%);
+  transition:transform .18s ease;display:flex;flex-direction:column}
+#drawer.open{transform:none}
+.dhead{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start}
+.dbody{overflow:auto;padding:14px 16px;flex:1}
+.modal{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.42);
+  display:none;align-items:center;justify-content:center;padding:24px}
+.modal.open{display:flex}
+.mcard{background:var(--panel);border-radius:12px;width:min(900px,100%);
+  max-height:100%;display:flex;flex-direction:column;border:1px solid var(--line-2)}
+.mcard .dbody{padding:16px}
+table.grid{border-collapse:separate;border-spacing:1px;font-size:11px;
+  font-family:ui-monospace,Consolas,monospace}
+table.grid th{font-weight:600;color:var(--ink-2);padding:2px 5px;white-space:nowrap;
+  font-family:ui-sans-serif,sans-serif;font-size:10.5px;position:sticky;background:var(--panel)}
+table.grid th.c{top:0}
+table.grid th.r{left:0;text-align:right}
+table.grid td{padding:2px 5px;text-align:right;border-radius:2px;white-space:nowrap}
+table.grid td.hi{outline:2px solid var(--accent);outline-offset:-2px}
+table.grid td.lo{outline:2px dashed var(--accent);outline-offset:-2px}
+.scroll{overflow:auto;max-height:52vh;border:1px solid var(--line);border-radius:8px;padding:6px}
+dl.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin:0;font-size:12.5px}
+dl.kv dt{color:var(--ink-3)}
+dl.kv dd{margin:0}
+table.rep{border-collapse:collapse;font-size:12.5px;width:100%}
+table.rep th,table.rep td{text-align:left;padding:5px 9px;border-bottom:1px solid var(--line)}
+table.rep th{color:var(--ink-3);font-weight:600}
+table.rep td.n{text-align:right;font-family:ui-monospace,Consolas,monospace}
+.ok{color:var(--good);font-weight:650}
+.bad{color:var(--crit);font-weight:650}
+.warn{color:var(--accent-ink);font-weight:650}
+.note{font-size:12px;color:var(--ink-3);margin-top:10px}
+progress{width:200px;height:8px}
+
+@media (max-width:820px){
+  header{padding:10px 12px}
+  .bar{padding:8px 12px;gap:6px}
+  .bar .sep{display:none}
+  main{padding:12px 12px 48px}
+  .legend{gap:10px;font-size:11.5px;margin-bottom:10px}
+  .chip{font-size:11.5px}
+  button,select,label.btn{font-size:12.5px;padding:6px 9px}
+  progress{width:120px}
+  .dhead{padding:11px 12px;gap:8px}
+  .dbody{padding:11px 12px}
+  .modal{padding:0}
+  .mcard{border-radius:0;height:100%}
+  #drawer{width:100vw;border-left:none}
+  .scroll{max-height:60vh}
+  dl.kv{grid-template-columns:1fr;gap:0 0}
+  dl.kv dt{margin-top:7px}
+}
+@media (max-width:520px){
+  #empty{margin:16vh auto}
+  label.btn.big{font-size:15px;padding:12px 20px}
+  h2{font-size:14px}
+  .legend{flex-direction:column;gap:4px}
+}
+@media (hover:none){
+  #strips canvas{cursor:default}
+  button,label.btn{padding:9px 12px}         /* bigger touch targets */
+}
+</style>
+</head>
+<body>
+
+<header style="align-items:center">
+  <button id="home" style="display:none" title="Back to the open-file screen">&#8592; Home</button>
+  <input type="file" id="f1">
+  <div class="grow"></div>
+  <button id="theme" title="Toggle theme">&#9789;</button>
+</header>
+
+<div class="bar" id="bar" style="display:none">
+  <span class="chip" id="c-file"></span>
+  <span class="chip" id="c-maps"></span>
+  <span class="chip" id="c-cov"></span>
+  <span class="sep"></span>
+  <span style="font-size:12.5px;color:var(--ink-2)">zoom</span>
+  <button id="zoom-out" title="Fit more of the file into each row">&minus;</button>
+  <button id="zoom-in" title="Spread each row over less of the file, in more detail">+</button>
+  <label style="font-size:12.5px;color:var(--ink-2)">
+    <input type="checkbox" id="onlymaps" checked> only rows with maps
+  </label>
+  <span class="sep"></span>
+  <button id="btn-list">Map list</button>
+  <button id="btn-png">Download PNG</button>
+  <span id="prog" style="display:none"><progress id="pbar" max="100" value="0"></progress></span>
+</div>
+
+<main>
+  <div id="empty">
+    <label class="btn primary big" for="f1">Open file&hellip;</label>
+    <p class="note">or drag a file anywhere on this page</p>
+  </div>
+
+  <div class="legend" id="legend" style="display:none">
+    <span><i style="background:var(--band-map)"></i>map with real data</span>
+    <span><i style="background:var(--band-flat)"></i>map present but constant &mdash; unused option</span>
+    <span><i style="background:var(--panel)"></i>not a map: scalars, curves, flags</span>
+  </div>
+  <div id="stripwrap"><div id="strips"></div></div>
+</main>
+
+<div id="tip"></div>
+
+<div id="drawer">
+  <div class="dhead">
+    <div class="grow"><h2 id="d-title">&nbsp;</h2><div class="sub" id="d-sub"></div></div>
+    <button id="d-close">Close</button>
+  </div>
+  <div class="dbody" id="d-body"></div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="mcard">
+    <div class="dhead">
+      <div class="grow"><h2 id="m-title">&nbsp;</h2><div class="sub" id="m-sub"></div></div>
+      <div id="m-actions" style="display:flex;gap:8px"></div>
+      <button id="m-close">Close</button>
+    </div>
+    <div class="dbody" id="m-body"></div>
+  </div>
+</div>
+
+<script src="neo.js"></script>
+</body>
+</html>

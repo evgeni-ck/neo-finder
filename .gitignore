@@ -1,0 +1,30 @@
+# Flash dumps and reads — never commit these.
+# They are OEM code and frequently customer data.
+*.bin
+*.ori
+*.mod
+*.ols
+*.kp
+*.frf
+*.sgo
+*.hex
+*.s19
+*.a2l
+*.damos
+*.dam
+samples/
+dumps/
+reads/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Node, only if tooling is added later
+node_modules/
+dist/
+*.log
