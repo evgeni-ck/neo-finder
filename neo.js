@@ -143,6 +143,178 @@ function ScannerLib() {
 var Scanner = ScannerLib();
 
 /* ------------------------------------------------------------------ *
+ * 1b. Language — English and Bulgarian. {0}-style placeholders.
+ * ------------------------------------------------------------------ */
+var STRINGS = {
+  en: {
+    'home': '← Home',
+    'home.title': 'Back to the open-file screen',
+    'lang.title': 'Switch language',
+    'theme.title': 'Toggle theme',
+    'openfile': 'Open file…',
+    'ordrag': 'or drag a file anywhere on this page',
+    'zoom': 'zoom',
+    'zoom.out': 'Fit more of the file into each row',
+    'zoom.in': 'Spread each row over less of the file, in more detail',
+    'onlymaps': 'only rows with maps',
+    'maplist': 'Map list',
+    'downloadpng': 'Download PNG',
+    'close': 'Close',
+    'legend.map': 'map with real data',
+    'legend.flat': 'map present but constant — unused option',
+    'legend.none': 'not a map: scalars, curves, flags',
+    'table.one': 'table', 'table.many': 'tables',
+    'chip.tables': '<b>{0}</b> {1} · named: {2} · constant: {3}',
+    'chip.cov': '<b>{0} %</b> of {1}–{2} in tables',
+    'chip.cov.title': '{0} of {1}; the rest of that span is scalars, bare curves and flag tables.',
+    'chip.none': '<b>no tables found</b>',
+    'norows': 'No rows to show. Untick <b>{0}</b> to see the whole file.',
+    'tip.word': 'word {0}  (0x{1})',
+    'tip.unnamed': 'unnamed table',
+    'tip.at': '{0}×{1} at {2} · {3}',
+    'tip.click': 'click to open',
+    'tip.outside': 'not inside a recognised table',
+    'part.header': 'header',
+    'part.x': 'X axis',
+    'part.y': 'Y axis',
+    'part.data': 'data',
+    'constant': 'constant',
+    'raw': 'raw',
+    'unnamedtable': 'Unnamed table',
+    'd.axes': 'axes at {0} / {1}',
+    'd.data': 'data at {0}',
+    'd.bytes': '{0} bytes',
+    'd.chain': 'in a chain of {0}',
+    'd.isolated': 'isolated hit',
+    'd.xaxis': 'X axis',
+    'd.yaxis': 'Y axis',
+    'd.values': 'Values',
+    'd.rule': 'Matched rule',
+    'd.note': 'Note',
+    'd.norule': 'none — no rule fits these axes and value range. Values below are raw.',
+    'd.unrecognised': 'unrecognised',
+    'd.confidence': '{0} confidence',
+    'd.valueshdr': 'Values ({0})',
+    'd.storage': 'Rows are X points, columns are Y points — the data is stored X-major, '
+      + '<span class="mono">value(ix,iy) = data[ix·ny + iy]</span>. Solid outline marks cells '
+      + 'at the table maximum, dashed at the minimum.',
+    'list.address': 'address', 'list.size': 'size', 'list.name': 'name',
+    'list.x': 'X axis', 'list.y': 'Y axis', 'list.values': 'values', 'list.chain': 'chain',
+    'list.curve': 'curve', 'list.unnamed': 'unnamed',
+    'list.sub': '{0} {1} · named: {2} · click a row to open',
+    'list.export': 'Export CSV',
+    'png.sub': '{0} · {1} · {2} {3} · named: {4}',
+    'png.foot': 'Addresses, dimensions, axes and values are exact. Names are inferred — '
+      + 'no DAMOS or A2L is present in the file.',
+    'err.small': 'That file is too small to be a flash dump.',
+    'err.big': 'That file is larger than 32 MiB; refusing to scan it.',
+    'err.read': 'Could not read that file.',
+    'conf.high': 'high', 'conf.medium': 'medium', 'conf.low': 'low',
+    'kind.rpm': 'rpm', 'kind.pedal': 'pedal', 'kind.iq': 'injection quantity',
+    'kind.coolant': 'coolant', 'kind.index': 'index'
+  },
+  bg: {
+    'home': '← Начало',
+    'home.title': 'Обратно към екрана за отваряне на файл',
+    'lang.title': 'Смяна на езика',
+    'theme.title': 'Смяна на темата',
+    'openfile': 'Отвори файл…',
+    'ordrag': 'или пуснете файл някъде на тази страница',
+    'zoom': 'мащаб',
+    'zoom.out': 'Повече от файла на всеки ред',
+    'zoom.in': 'По-малко от файла на всеки ред, с повече детайл',
+    'onlymaps': 'само редове с карти',
+    'maplist': 'Списък с карти',
+    'downloadpng': 'Изтегли PNG',
+    'close': 'Затвори',
+    'legend.map': 'карта с реални данни',
+    'legend.flat': 'карта, но постоянна — неизползвана опция',
+    'legend.none': 'не е карта: скалари, криви, флагове',
+    'table.one': 'таблица', 'table.many': 'таблици',
+    'chip.tables': '<b>{0}</b> {1} · наименувани: {2} · постоянни: {3}',
+    'chip.cov': '<b>{0} %</b> от {1}–{2} в таблици',
+    'chip.cov.title': '{0} от {1}; останалото в този обхват са скалари, отделни криви и таблици с флагове.',
+    'chip.none': '<b>няма намерени таблици</b>',
+    'norows': 'Няма редове за показване. Махнете <b>{0}</b>, за да видите целия файл.',
+    'tip.word': 'дума {0}  (0x{1})',
+    'tip.unnamed': 'неназована таблица',
+    'tip.at': '{0}×{1} на {2} · {3}',
+    'tip.click': 'щракнете, за да отворите',
+    'tip.outside': 'извън разпозната таблица',
+    'part.header': 'заглавие',
+    'part.x': 'ос X',
+    'part.y': 'ос Y',
+    'part.data': 'данни',
+    'constant': 'постоянна',
+    'raw': 'сурови',
+    'unnamedtable': 'Неназована таблица',
+    'd.axes': 'оси на {0} / {1}',
+    'd.data': 'данни на {0}',
+    'd.bytes': '{0} байта',
+    'd.chain': 'във верига от {0}',
+    'd.isolated': 'изолирано попадение',
+    'd.xaxis': 'Ос X',
+    'd.yaxis': 'Ос Y',
+    'd.values': 'Стойности',
+    'd.rule': 'Съответстващо правило',
+    'd.note': 'Бележка',
+    'd.norule': 'няма — никое правило не пасва на тези оси и обхват. Стойностите по-долу са сурови.',
+    'd.unrecognised': 'неразпозната',
+    'd.confidence': '{0} увереност',
+    'd.valueshdr': 'Стойности ({0})',
+    'd.storage': 'Редовете са точки по X, колоните — точки по Y. Данните се пазят X-мажорно: '
+      + '<span class="mono">value(ix,iy) = data[ix·ny + iy]</span>. Плътният контур маркира '
+      + 'клетките с максимума на таблицата, прекъснатият — с минимума.',
+    'list.address': 'адрес', 'list.size': 'размер', 'list.name': 'име',
+    'list.x': 'ос X', 'list.y': 'ос Y', 'list.values': 'стойности', 'list.chain': 'верига',
+    'list.curve': 'крива', 'list.unnamed': 'неназована',
+    'list.sub': '{0} {1} · наименувани: {2} · щракнете на ред, за да го отворите',
+    'list.export': 'Експорт CSV',
+    'png.sub': '{0} · {1} · {2} {3} · наименувани: {4}',
+    'png.foot': 'Адресите, размерите, осите и стойностите са точни. Имената са изведени — '
+      + 'във файла няма DAMOS или A2L.',
+    'err.small': 'Файлът е твърде малък, за да е дъмп на флаш памет.',
+    'err.big': 'Файлът е по-голям от 32 MiB; сканирането е отказано.',
+    'err.read': 'Файлът не може да бъде прочетен.',
+    'conf.high': 'висока', 'conf.medium': 'средна', 'conf.low': 'ниска',
+    'kind.rpm': 'обороти', 'kind.pedal': 'педал', 'kind.iq': 'количество впръскване',
+    'kind.coolant': 'охл. течност', 'kind.index': 'индекс'
+  }
+};
+
+/* Units: symbols that are already international stay put; the rest translate. */
+var UNITS = {
+  bg: { 'mg/stroke': 'mg/ход', 'bar': 'бар', 'mbar abs': 'mbar абс.', '°CA': '° ъгъл',
+        'rpm': 'об/мин', 'raw': 'сурови' }
+};
+
+var LANG = 'en';
+
+function t(key) {
+  var tbl = STRINGS[LANG] || STRINGS.en;
+  var s = tbl[key];
+  if (s == null) s = STRINGS.en[key];
+  if (s == null) return key;
+  for (var i = 1; i < arguments.length; i++) {
+    s = s.split('{' + (i - 1) + '}').join(String(arguments[i]));
+  }
+  return s;
+}
+
+function unitOf(u) {
+  if (!u) return '';
+  var m = UNITS[LANG];
+  return (m && m[u]) || u;
+}
+
+function tableWord(n) { return t(n === 1 ? 'table.one' : 'table.many'); }
+
+function kindName(k) { return k ? t('kind.' + k.kind) : t('d.unrecognised'); }
+
+function ruleLabel(r) { return r ? ((LANG !== 'en' && r[LANG] && r[LANG].label) || r.label) : null; }
+function ruleNote(r) { return r ? ((LANG !== 'en' && r[LANG] && r[LANG].note) || r.note) : null; }
+
+/* ------------------------------------------------------------------ *
  * 2. Naming — a rule pack, deliberately data and not code.
  * ------------------------------------------------------------------ */
 var DEFAULT_RULES = {
@@ -169,39 +341,55 @@ var DEFAULT_RULES = {
   maps: [
     { label: 'Driver wish – requested injection quantity', x: 'rpm', y: 'pedal',
       unit: 'mg/stroke', factor: 0.01, confidence: 'high',
-      note: 'quantity request; zero rows at the top of the rpm axis are the fuel cut' },
+      note: 'quantity request; zero rows at the top of the rpm axis are the fuel cut',
+      bg: { label: 'Желание на водача – заявено количество впръскване',
+            note: 'заявка за количество; нулевите редове в горния край на оста на оборотите са отсечката на горивото' } },
 
     { label: 'Rail pressure setpoint', x: 'rpm', y: 'iq',
       dataMax: [11000, 17000], trendX: 'up', trendY: 'up',
       unit: 'bar', factor: 0.1, confidence: 'high',
-      note: 'a large plateau exactly at the maximum is the pump limit, not a setpoint' },
+      note: 'a large plateau exactly at the maximum is the pump limit, not a setpoint',
+      bg: { label: 'Задание за налягане в рейката',
+            note: 'голямо плато точно на максимума е ограничението на помпата, а не задание' } },
 
     { label: 'Injection timing', x: 'rpm', y: 'iq',
       dataMin: [900, 1900], dataMax: [2000, 3200], trendX: 'down',
       unit: '°CA', factor: 0.01, confidence: 'medium',
-      note: 'falls with rising speed; pilot or main start-of-injection' },
+      note: 'falls with rising speed; pilot or main start-of-injection',
+      bg: { label: 'Момент на впръскване',
+            note: 'намалява с оборотите; начало на пилотното или основното впръскване' } },
 
     { label: 'Boost pressure setpoint', x: 'rpm', y: 'iq',
       dataMin: [600, 1500], dataMax: [1700, 3200], trendY: 'up',
       unit: 'mbar abs', factor: 1, confidence: 'high',
-      note: 'the floor near 1000 is ambient pressure, i.e. no boost demand' },
+      note: 'the floor near 1000 is ambient pressure, i.e. no boost demand',
+      bg: { label: 'Задание за налягане на наддаване',
+            note: 'подът около 1000 е атмосферното налягане, т.е. без заявка за наддаване' } },
 
     { label: 'EGR / air-path setpoint', x: 'rpm', y: 'iq',
       dataMin: [50, 600], dataMax: [1500, 3500], trendY: 'down',
       unit: 'raw', factor: 1, confidence: 'low',
-      note: 'a hard step rather than a gradient suggests shut-off past a load threshold; could also be a flap actuator' },
+      note: 'a hard step rather than a gradient suggests shut-off past a load threshold; could also be a flap actuator',
+      bg: { label: 'Задание за EGR / въздушен път',
+            note: 'резкият праг вместо плавен преход подсказва изключване след определено натоварване; може да е и клапа' } },
 
     { label: 'Duty / position', x: 'rpm', y: 'iq',
       dataMax: [5000, 8300], unit: '%', factor: 0.01220703125, confidence: 'medium',
-      note: '8192 = 100 %, so this is a normalised actuator demand' },
+      note: '8192 = 100 %, so this is a normalised actuator demand',
+      bg: { label: 'Запълване / позиция',
+            note: '8192 = 100 %, т.е. нормализирана заявка към изпълнителен механизъм' } },
 
     { label: 'Temperature correction', x: 'rpm', y: 'coolant',
       unit: 'raw', factor: 1, confidence: 'medium',
-      note: 'coolant-indexed trim, typically cold-running enrichment or timing' },
+      note: 'coolant-indexed trim, typically cold-running enrichment or timing',
+      bg: { label: 'Температурна корекция',
+            note: 'корекция по температура на охладителната течност, обикновено обогатяване или момент при студен двигател' } },
 
     { label: 'Quantity limiter', x: 'rpm', y: 'iq',
       dataMax: [2500, 5000], trendX: 'down', unit: 'mg/stroke', factor: 0.01,
-      confidence: 'low', note: 'upper bound on quantity; often the smoke limiter' }
+      confidence: 'low', note: 'upper bound on quantity; often the smoke limiter',
+      bg: { label: 'Ограничител на количеството',
+            note: 'горна граница на количеството; често ограничителят на дима' } }
   ]
 };
 
@@ -336,7 +524,7 @@ function classifyAll() {
     var m = S.maps[i], v = viewOf(m);
     var c = RuleEngine.classify(v, S.rules);
     m.rule = c.rule; m.xKind = c.xKind; m.yKind = c.yKind;
-    m.label = c.rule ? c.rule.label : null;
+    m.label = ruleLabel(c.rule);          // display label in the current language
   }
   // group consecutive maps sharing a label (or both unnamed with equal shape)
   S.groups = [];
@@ -389,14 +577,14 @@ function geomFor(cssW) {
 }
 
 function groupText(g) {
-  var t = hx(g.start) + '  ' + (g.label || (g.count + ' × ' + g.nx + '×' + g.ny));
+  var title = hx(g.start) + '  ' + (g.label || (g.count + ' × ' + g.nx + '×' + g.ny));
   var bits = [];
   if (g.count > 1) bits.push(g.count + ' × ' + g.nx + '×' + g.ny);
   else bits.push(g.nx + '×' + g.ny);
-  if (g.rule) bits.push(scaleVal(g.min, g.rule) + '–' + scaleVal(g.max, g.rule) + ' ' + g.rule.unit);
-  else bits.push('raw ' + g.min + '–' + g.max);
-  if (g.rule && g.rule.confidence) bits.push(g.rule.confidence + ' confidence');
-  return { t: t, s: bits.join(' · ') };
+  if (g.rule) bits.push(scaleVal(g.min, g.rule) + '–' + scaleVal(g.max, g.rule) + ' ' + unitOf(g.rule.unit));
+  else bits.push(t('raw') + ' ' + g.min + '–' + g.max);
+  if (g.rule && g.rule.confidence) bits.push(t('d.confidence', t('conf.' + g.rule.confidence)));
+  return { t: title, s: bits.join(' · ') };
 }
 
 /* Zoom is expressed as bytes of address space per row: zooming in spreads a row
@@ -538,8 +726,8 @@ function drawStrip(canvas, st) {
 
   g.textAlign = 'center'; g.fillStyle = C.ink2;
   g.font = (G.narrow ? '9.5px ' : '10.5px ') + 'ui-sans-serif,sans-serif';
-  for (var t = 0; t <= G.ticks; t++) {
-    var ad = a0 + (a1 - a0) * t / G.ticks, xx = Math.round(px(ad)) + 0.5;
+  for (var ti = 0; ti <= G.ticks; ti++) {
+    var ad = a0 + (a1 - a0) * ti / G.ticks, xx = Math.round(px(ad)) + 0.5;
     g.strokeStyle = C.ink3;
     g.beginPath(); g.moveTo(xx, y0 + G.plotH); g.lineTo(xx, y0 + G.plotH + 4); g.stroke();
     g.fillText(hx(Math.round(ad)), xx, y0 + G.plotH + 15);
@@ -575,8 +763,7 @@ function renderStrips() {
   var cssW = layoutWidth();
   S.strips = planStrips(cssW, geomFor(cssW));
   if (!S.strips.length) {
-    host.innerHTML = '<p style="color:var(--ink-2)">No rows to show. Untick '
-      + '<b>only rows with maps</b> to see the whole file.</p>';
+    host.innerHTML = '<p style="color:var(--ink-2)">' + t('norows', t('onlymaps')) + '</p>';
     return;
   }
   S.strips.forEach(function (st) {
@@ -618,19 +805,20 @@ function onHover(e, st) {
   var le = S.result.le, b = S.bytes, o = ad & ~1;
   var word = le ? (b[o] | (b[o + 1] << 8)) : ((b[o] << 8) | b[o + 1]);
   var h = '<div class="t mono">' + hx(ad) + '</div>'
-        + '<div class="r">word ' + word + '  (0x' + hx(word, 4) + ')</div>';
+        + '<div class="r">' + t('tip.word', word, hx(word, 4)) + '</div>';
   if (m) {
-    var part = ad < m.xo ? 'header' : ad < m.yo ? 'X axis' : ad < m.dt ? 'Y axis' : 'data';
+    var part = ad < m.xo ? t('part.header') : ad < m.yo ? t('part.x')
+             : ad < m.dt ? t('part.y') : t('part.data');
     h += '<div style="margin-top:5px;font-weight:650">'
-       + (m.label || 'unnamed table') + '</div>'
-       + '<div class="r">' + m.nx + '×' + m.ny + ' at ' + hx(m.off)
-       + ' · ' + part + (m.flat ? ' · constant' : '') + '</div>'
+       + (m.label || t('tip.unnamed')) + '</div>'
+       + '<div class="r">' + t('tip.at', m.nx, m.ny, hx(m.off), part)
+       + (m.flat ? ' · ' + t('constant') : '') + '</div>'
        + '<div class="r">' + (m.rule
-            ? scaleVal(m.min, m.rule) + '–' + scaleVal(m.max, m.rule) + ' ' + m.rule.unit
-            : 'raw ' + m.min + '–' + m.max) + '</div>'
-       + '<div class="r" style="margin-top:4px">click to open</div>';
+            ? scaleVal(m.min, m.rule) + '–' + scaleVal(m.max, m.rule) + ' ' + unitOf(m.rule.unit)
+            : t('raw') + ' ' + m.min + '–' + m.max) + '</div>'
+       + '<div class="r" style="margin-top:4px">' + t('tip.click') + '</div>';
   } else {
-    h += '<div class="r" style="margin-top:5px">not inside a recognised table</div>';
+    h += '<div class="r" style="margin-top:5px">' + t('tip.outside') + '</div>';
   }
   tip.innerHTML = h;
   tip.style.display = 'block';
@@ -654,34 +842,42 @@ var currentMap = null;
 function openMap(m) {
   currentMap = m;
   var v = viewOf(m), r = m.rule;
-  $('d-title').textContent = (m.label || 'Unnamed table') + '  ·  ' + hx(m.off);
-  $('d-sub').innerHTML = m.nx + '×' + m.ny + ' · axes at ' + hx(m.xo) + ' / ' + hx(m.yo)
-    + ' · data at ' + hx(m.dt) + ' · ' + m.len + ' bytes'
-    + (m.chainLen > 1 ? ' · in a chain of ' + m.chainLen : ' · <span class="warn">isolated hit</span>')
-    + (m.flat ? ' · constant' : '');
+  $('d-title').textContent = (m.label || t('unnamedtable')) + '  ·  ' + hx(m.off);
+  $('d-sub').innerHTML = m.nx + '×' + m.ny
+    + ' · ' + t('d.axes', hx(m.xo), hx(m.yo))
+    + ' · ' + t('d.data', hx(m.dt))
+    + ' · ' + t('d.bytes', m.len)
+    + (m.chainLen > 1 ? ' · ' + t('d.chain', m.chainLen)
+                      : ' · <span class="warn">' + t('d.isolated') + '</span>')
+    + (m.flat ? ' · ' + t('constant') : '');
 
   var body = $('d-body'), h = '';
 
   h += '<dl class="kv">';
-  h += '<dt>X axis</dt><dd>' + (m.xKind ? m.xKind.kind + ' (' + m.xKind.unit + ')' : 'unrecognised')
+  h += '<dt>' + t('d.xaxis') + '</dt><dd>'
+     + (m.xKind ? kindName(m.xKind) + (m.xKind.unit ? ' (' + unitOf(m.xKind.unit) + ')' : '')
+                : t('d.unrecognised'))
      + ' — ' + v.X[0] + ' … ' + v.X[v.nx - 1] + '</dd>';
   if (m.ny > 1) {
-    h += '<dt>Y axis</dt><dd>' + (m.yKind ? m.yKind.kind + ' (' + m.yKind.unit + ')' : 'unrecognised')
+    h += '<dt>' + t('d.yaxis') + '</dt><dd>'
+       + (m.yKind ? kindName(m.yKind) + (m.yKind.unit ? ' (' + unitOf(m.yKind.unit) + ')' : '')
+                  : t('d.unrecognised'))
        + ' — ' + v.Y[0] + ' … ' + v.Y[v.ny - 1] + '</dd>';
   }
-  h += '<dt>Values</dt><dd>raw ' + m.min + '–' + m.max
-     + (r ? ' → ' + scaleVal(m.min, r) + '–' + scaleVal(m.max, r) + ' ' + r.unit : '') + '</dd>';
+  h += '<dt>' + t('d.values') + '</dt><dd>' + t('raw') + ' ' + m.min + '–' + m.max
+     + (r ? ' → ' + scaleVal(m.min, r) + '–' + scaleVal(m.max, r) + ' ' + unitOf(r.unit) : '')
+     + '</dd>';
   if (r) {
-    h += '<dt>Matched rule</dt><dd>' + r.label + ' · <b>' + r.confidence
-       + '</b> confidence</dd>';
-    if (r.note) h += '<dt>Note</dt><dd style="color:var(--ink-2)">' + r.note + '</dd>';
+    h += '<dt>' + t('d.rule') + '</dt><dd>' + ruleLabel(r) + ' · <b>'
+       + t('d.confidence', t('conf.' + r.confidence)) + '</b></dd>';
+    var note = ruleNote(r);
+    if (note) h += '<dt>' + t('d.note') + '</dt><dd style="color:var(--ink-2)">' + note + '</dd>';
   } else {
-    h += '<dt>Matched rule</dt><dd style="color:var(--ink-3)">none — no rule fits these '
-       + 'axes and value range. Values below are raw.</dd>';
+    h += '<dt>' + t('d.rule') + '</dt><dd style="color:var(--ink-3)">' + t('d.norule') + '</dd>';
   }
   h += '</dl>';
 
-  h += '<h3>Values' + (r ? ' (' + r.unit + ')' : ' (raw)') + '</h3>';
+  h += '<h3>' + t('d.valueshdr', r ? unitOf(r.unit) : t('raw')) + '</h3>';
   h += '<div class="scroll"><table class="grid"><tr><th class="c r"></th>';
   for (var iy = 0; iy < v.ny; iy++) {
     h += '<th class="c">' + (m.yKind ? scaleVal(v.Y[iy], m.yKind) : v.Y[iy]) + '</th>';
@@ -691,18 +887,16 @@ function openMap(m) {
     h += '<tr><th class="r">' + (m.xKind ? scaleVal(v.X[ix], m.xKind) : v.X[ix]) + '</th>';
     for (iy = 0; iy < v.ny; iy++) {
       var val = v.at(ix, iy);
-      var t = m.max === m.min ? 0.5 : (val - m.min) / (m.max - m.min);
+      var shade = m.max === m.min ? 0.5 : (val - m.min) / (m.max - m.min);
       var cls = val === m.max && !m.flat ? ' hi' : val === m.min && !m.flat ? ' lo' : '';
-      var fg = t > 0.55 ? '#fff' : '#0b0b0b';
-      h += '<td class="' + cls + '" style="background:' + ramp(t) + ';color:' + fg + '">'
+      var fg = shade > 0.55 ? '#fff' : '#0b0b0b';
+      h += '<td class="' + cls + '" style="background:' + ramp(shade) + ';color:' + fg + '">'
          + (r ? scaleVal(val, r) : val) + '</td>';
     }
     h += '</tr>';
   }
   h += '</table></div>';
-  h += '<p class="note">Rows are X points, columns are Y points — the data is stored '
-     + 'X-major, <span class="mono">value(ix,iy) = data[ix·ny + iy]</span>. '
-     + 'Solid outline marks cells at the table maximum, dashed at the minimum.</p>';
+  h += '<p class="note">' + t('d.storage') + '</p>';
 
   body.innerHTML = h;
   $('drawer').classList.add('open');
@@ -730,24 +924,26 @@ function closeModal() { $('modal').classList.remove('open'); }
 
 function showList() {
   var named = S.maps.filter(function (m) { return m.label; }).length;
-  var html = '<div class="tablewrap"><table class="rep"><tr><th>address</th><th>size</th>'
-    + '<th>name</th><th>X axis</th><th>Y axis</th><th>values</th><th>chain</th></tr>';
+  var html = '<div class="tablewrap"><table class="rep"><tr><th>' + t('list.address')
+    + '</th><th>' + t('list.size') + '</th><th>' + t('list.name') + '</th><th>' + t('list.x')
+    + '</th><th>' + t('list.y') + '</th><th>' + t('list.values') + '</th><th>'
+    + t('list.chain') + '</th></tr>';
   S.maps.forEach(function (m, i) {
     var r = m.rule;
     html += '<tr style="cursor:pointer" data-i="' + i + '">'
       + '<td class="n">' + hx(m.off) + '</td>'
       + '<td class="n">' + m.nx + '×' + m.ny + '</td>'
-      + '<td>' + (m.label || '<span style="color:var(--ink-3)">unnamed</span>')
-      + (m.flat ? ' <span style="color:var(--ink-3)">constant</span>' : '') + '</td>'
-      + '<td>' + (m.xKind ? m.xKind.kind : '—') + '</td>'
-      + '<td>' + (m.ny > 1 ? (m.yKind ? m.yKind.kind : '—') : 'curve') + '</td>'
-      + '<td class="n">' + (r ? scaleVal(m.min, r) + '–' + scaleVal(m.max, r) + ' ' + r.unit
+      + '<td>' + (m.label || '<span style="color:var(--ink-3)">' + t('list.unnamed') + '</span>')
+      + (m.flat ? ' <span style="color:var(--ink-3)">' + t('constant') + '</span>' : '') + '</td>'
+      + '<td>' + (m.xKind ? kindName(m.xKind) : '—') + '</td>'
+      + '<td>' + (m.ny > 1 ? (m.yKind ? kindName(m.yKind) : '—') : t('list.curve')) + '</td>'
+      + '<td class="n">' + (r ? scaleVal(m.min, r) + '–' + scaleVal(m.max, r) + ' ' + unitOf(r.unit)
                               : m.min + '–' + m.max) + '</td>'
       + '<td class="n">' + (m.chainLen > 1 ? m.chainLen : '<span class="warn">1</span>') + '</td></tr>';
   });
   html += '</table></div>';
-  openModal('Map list', S.maps.length + ' tables · ' + named + ' named · click a row to open',
-    html, [{ label: 'Export CSV', fn: function () {
+  openModal(t('maplist'), t('list.sub', S.maps.length, tableWord(S.maps.length), named),
+    html, [{ label: t('list.export'), fn: function () {
       var rows = ['address,nx,ny,name,x_kind,y_kind,raw_min,raw_max,constant,chain_len,'
         + 'x_axis_addr,y_axis_addr,data_addr,bytes'];
       S.maps.forEach(function (m) {
@@ -789,13 +985,10 @@ function exportPNG() {
   g.fillStyle = css('--ink'); g.font = '700 20px ui-sans-serif,sans-serif';
   g.fillText('neo-finder — ' + S.name, indent, 28);
   g.fillStyle = css('--ink-2'); g.font = '12.5px ui-sans-serif,sans-serif';
-  g.fillText(fmtBytes(S.bytes.length) + ' · ' + S.result.variantLabel + ' · '
-    + S.maps.length + ' tables, ' + S.maps.filter(function (m) { return m.label; }).length
-    + ' named · ' + (100 * S.result.covered / S.bytes.length).toFixed(1) + ' % covered',
-    indent, 48);
+  g.fillText(t('png.sub', fmtBytes(S.bytes.length), S.result.variantLabel, S.maps.length,
+    tableWord(S.maps.length), S.maps.filter(function (m) { return m.label; }).length), indent, 48);
   g.fillStyle = css('--ink-3'); g.font = '11.5px ui-sans-serif,sans-serif';
-  g.fillText('Addresses, dimensions, axes and values are exact. Names are inferred — no DAMOS or A2L is present in the file.',
-    indent, 66);
+  g.fillText(t('png.foot'), indent, 66);
   g.setTransform(1, 0, 0, 1, 0, 0);
   var y = headH * dpr;
   S.strips.forEach(function (s) {
@@ -870,20 +1063,18 @@ function updateChips() {
   $('c-file').innerHTML = '<b>' + (S.name || 'buffer') + '</b> · ' + fmtBytes(S.bytes.length);
   var named = S.maps.filter(function (m) { return m.label; }).length;
   var flat = S.maps.filter(function (m) { return m.flat; }).length;
-  $('c-maps').innerHTML = '<b>' + S.maps.length + '</b> tables · ' + named + ' named · '
-    + flat + ' constant';
+  $('c-maps').innerHTML = t('chip.tables', S.maps.length, tableWord(S.maps.length), named, flat);
   /* Coverage against the whole file is misleading — most of a dump is program
    * code. Report it against the span the tables actually occupy, which is the
    * calibration area, and name that span. */
   if (S.maps.length) {
     var lo = S.maps[0].off, hiM = S.maps[S.maps.length - 1];
     var span = (hiM.off + hiM.len) - lo;
-    $('c-cov').innerHTML = '<b>' + (100 * S.result.covered / span).toFixed(1)
-      + ' %</b> of ' + hx(lo) + '&ndash;' + hx(lo + span - 1) + ' in tables';
-    $('c-cov').title = fmtBytes(S.result.covered) + ' of ' + fmtBytes(span)
-      + '; the rest of that span is scalars, bare curves and flag tables.';
+    $('c-cov').innerHTML = t('chip.cov', (100 * S.result.covered / span).toFixed(1),
+      hx(lo), hx(lo + span - 1));
+    $('c-cov').title = t('chip.cov.title', fmtBytes(S.result.covered), fmtBytes(span));
   } else {
-    $('c-cov').innerHTML = '<b>no tables found</b>';
+    $('c-cov').innerHTML = t('chip.none');
   }
 }
 
@@ -891,8 +1082,8 @@ function updateChips() {
  * 10. Wiring
  * ------------------------------------------------------------------ */
 function loadBuffer(name, u8) {
-  if (u8.length < 0x800) { alert('That file is too small to be a flash dump.'); return; }
-  if (u8.length > 32 * 1048576) { alert('That file is larger than 32 MiB; refusing to scan it.'); return; }
+  if (u8.length < 0x800) { alert(t('err.small')); return; }
+  if (u8.length > 32 * 1048576) { alert(t('err.big')); return; }
   S.name = name; S.bytes = u8;
   runScan();
 }
@@ -900,7 +1091,7 @@ function loadBuffer(name, u8) {
 function readFile(file, cb) {
   var fr = new FileReader();
   fr.onload = function () { cb(new Uint8Array(fr.result)); };
-  fr.onerror = function () { alert('Could not read that file.'); };
+  fr.onerror = function () { alert(t('err.read')); };
   fr.readAsArrayBuffer(file);
 }
 
@@ -927,6 +1118,32 @@ $('f1').addEventListener('change', function (e) {
   var f = e.target.files[0];
   if (f) readFile(f, function (u8) { loadBuffer(f.name, u8); });
 });
+/* Static DOM text comes from data-i18n / data-i18n-title attributes; anything
+ * generated at runtime goes through t(). Rule labels live in the rule pack, so a
+ * language switch has to re-classify before re-rendering. */
+function applyLang(lang) {
+  LANG = STRINGS[lang] ? lang : 'en';
+  document.documentElement.lang = LANG;
+  try { localStorage.setItem('neo-finder.lang', LANG); } catch (e) { /* private mode */ }
+
+  document.querySelectorAll('[data-i18n]').forEach(function (el) {
+    el.textContent = t(el.getAttribute('data-i18n'));
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(function (el) {
+    el.title = t(el.getAttribute('data-i18n-title'));
+  });
+  $('lang').textContent = LANG === 'bg' ? 'EN' : 'BG';   // shows what you switch to
+
+  if (S.bytes) {
+    classifyAll();
+    updateChips();
+    renderStrips();
+    if (currentMap) openMap(currentMap);
+    if ($('modal').classList.contains('open')) showList();
+  }
+}
+
+$('lang').addEventListener('click', function () { applyLang(LANG === 'bg' ? 'en' : 'bg'); });
 $('home').addEventListener('click', goHome);
 $('zoom-in').addEventListener('click', function () { setZoom(1); });
 $('zoom-out').addEventListener('click', function () { setZoom(-1); });
@@ -968,3 +1185,12 @@ document.addEventListener('drop', function (e) {
   var f = e.dataTransfer.files[0];
   if (f) readFile(f, function (u8) { loadBuffer(f.name, u8); });
 });
+
+/* Saved choice wins; otherwise follow the browser, so a Bulgarian browser
+ * lands on Bulgarian without touching anything. */
+(function initLang() {
+  var saved = null;
+  try { saved = localStorage.getItem('neo-finder.lang'); } catch (e) { /* private mode */ }
+  var nav = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+  applyLang(saved || (nav.indexOf('bg') === 0 ? 'bg' : 'en'));
+})();

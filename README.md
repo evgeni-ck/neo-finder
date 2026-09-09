@@ -39,6 +39,8 @@ Open a file with the button, or drag one anywhere onto the page.
 - Detects word size and endianness by trying each variant and keeping whichever
   covers the most bytes — silently, with no control to get wrong
 - Exports the map list as CSV and the whole view as PNG
+- **English and Bulgarian**, including the map names, units and canvas labels.
+  Follows the browser locale on first visit, then remembers the toggle
 
 Read-only throughout. No writing, no checksum correction, no OBD or bench
 flashing. This is not a replacement for a commercial editor.
@@ -132,6 +134,28 @@ DAMOS or A2L is embedded in these files, so labels are a reading of the numbers.
 Rules carry a confidence level, shown in the detail panel alongside a note. The
 loose ones — `Duty / position` in particular — will over-match; tighten their
 ranges in `DEFAULT_RULES`.
+
+## Translations
+
+`STRINGS` at the top of `neo.js` holds one flat table per language, with
+`{0}`-style placeholders. Static DOM text is marked up with `data-i18n` and
+`data-i18n-title` attributes and filled in by `applyLang()`; everything generated
+at runtime goes through `t()`.
+
+Three things beyond plain UI text also translate: **units** (via the `UNITS`
+map — `bar` → `бар`, `mg/stroke` → `mg/ход`, while international symbols like
+`mbar` and `°C` stay put), **axis-kind names**, and the **map names and notes**,
+which live as a `bg: { label, note }` block on each rule in the rule pack rather
+than in the string table. Since names come from the rules, a language switch
+re-classifies before re-rendering, and an open detail panel or map list refreshes
+in place.
+
+Counts use a singular/plural noun (`table` / `tables`, `таблица` / `таблици`) and
+the label-with-colon form for the rest (`named: 3`), which sidesteps adjective
+agreement in Bulgarian.
+
+To add a language: copy the `en` block, translate it, add a matching `bg`-style
+block to each rule, and extend `UNITS`. Nothing else needs touching.
 
 ## Known limits
 

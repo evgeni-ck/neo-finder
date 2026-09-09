@@ -147,10 +147,11 @@ progress{width:200px;height:8px}
 <body>
 
 <header style="align-items:center">
-  <button id="home" style="display:none" title="Back to the open-file screen">&#8592; Home</button>
+  <button id="home" style="display:none" data-i18n="home" data-i18n-title="home.title"></button>
   <input type="file" id="f1">
   <div class="grow"></div>
-  <button id="theme" title="Toggle theme">&#9789;</button>
+  <button id="lang" data-i18n-title="lang.title"></button>
+  <button id="theme" data-i18n-title="theme.title">&#9789;</button>
 </header>
 
 <div class="bar" id="bar" style="display:none">
@@ -158,28 +159,28 @@ progress{width:200px;height:8px}
   <span class="chip" id="c-maps"></span>
   <span class="chip" id="c-cov"></span>
   <span class="sep"></span>
-  <span style="font-size:12.5px;color:var(--ink-2)">zoom</span>
-  <button id="zoom-out" title="Fit more of the file into each row">&minus;</button>
-  <button id="zoom-in" title="Spread each row over less of the file, in more detail">+</button>
+  <span style="font-size:12.5px;color:var(--ink-2)" data-i18n="zoom"></span>
+  <button id="zoom-out" data-i18n-title="zoom.out">&minus;</button>
+  <button id="zoom-in" data-i18n-title="zoom.in">+</button>
   <label style="font-size:12.5px;color:var(--ink-2)">
-    <input type="checkbox" id="onlymaps" checked> only rows with maps
+    <input type="checkbox" id="onlymaps" checked> <span data-i18n="onlymaps"></span>
   </label>
   <span class="sep"></span>
-  <button id="btn-list">Map list</button>
-  <button id="btn-png">Download PNG</button>
+  <button id="btn-list" data-i18n="maplist"></button>
+  <button id="btn-png" data-i18n="downloadpng"></button>
   <span id="prog" style="display:none"><progress id="pbar" max="100" value="0"></progress></span>
 </div>
 
 <main>
   <div id="empty">
-    <label class="btn primary big" for="f1">Open file&hellip;</label>
-    <p class="note">or drag a file anywhere on this page</p>
+    <label class="btn primary big" for="f1" data-i18n="openfile"></label>
+    <p class="note" data-i18n="ordrag"></p>
   </div>
 
   <div class="legend" id="legend" style="display:none">
-    <span><i style="background:var(--band-map)"></i>map with real data</span>
-    <span><i style="background:var(--band-flat)"></i>map present but constant &mdash; unused option</span>
-    <span><i style="background:var(--panel)"></i>not a map: scalars, curves, flags</span>
+    <span><i style="background:var(--band-map)"></i><span data-i18n="legend.map"></span></span>
+    <span><i style="background:var(--band-flat)"></i><span data-i18n="legend.flat"></span></span>
+    <span><i style="background:var(--panel)"></i><span data-i18n="legend.none"></span></span>
   </div>
   <div id="stripwrap"><div id="strips"></div></div>
 </main>
@@ -189,7 +190,7 @@ progress{width:200px;height:8px}
 <div id="drawer">
   <div class="dhead">
     <div class="grow"><h2 id="d-title">&nbsp;</h2><div class="sub" id="d-sub"></div></div>
-    <button id="d-close">Close</button>
+    <button id="d-close" data-i18n="close"></button>
   </div>
   <div class="dbody" id="d-body"></div>
 </div>
@@ -199,7 +200,7 @@ progress{width:200px;height:8px}
     <div class="dhead">
       <div class="grow"><h2 id="m-title">&nbsp;</h2><div class="sub" id="m-sub"></div></div>
       <div id="m-actions" style="display:flex;gap:8px"></div>
-      <button id="m-close">Close</button>
+      <button id="m-close" data-i18n="close"></button>
     </div>
     <div class="dbody" id="m-body"></div>
   </div>
