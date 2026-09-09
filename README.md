@@ -23,6 +23,9 @@ Open a file with the button, or drag one anywhere onto the page.
 
 ## What it does
 
+- **Identifies the file**: MD5, CRC32 and SHA-256, plus the ECU type, controller,
+  software and hardware numbers, build banner and date, operating system and
+  project tags read straight out of the binary. Click the filename chip
 - Finds map tables and reports address, dimensions, axis addresses, data address
   and byte length for each
 - Names the regions it recognises, with a confidence level and a note
@@ -134,6 +137,37 @@ DAMOS or A2L is embedded in these files, so labels are a reading of the numbers.
 Rules carry a confidence level, shown in the detail panel alongside a note. The
 loose ones — `Duty / position` in particular — will over-match; tighten their
 ranges in `DEFAULT_RULES`.
+
+## File identification
+
+Same split as the rest of the tool: the worker **extracts**, the main thread
+**interprets**. `identify()` in `ScannerLib` returns CRC32, MD5 and every
+printable run of six characters or more; `ID_PATTERNS` then interprets those as
+data, one regex row per identifier kind. SHA-256 comes from WebCrypto lazily
+when the panel opens.
+
+MD5 is hand-rolled because WebCrypto does not offer it and ECU tools
+conventionally quote it. It is verified against all seven RFC 1321 test vectors,
+twelve block-boundary lengths where padding logic usually breaks, and the known
+`md5sum` of a real 2 MiB dump. CRC32 is checked against zlib. `identify()` runs
+in about 55 ms on 2 MiB.
+
+On the reference EDC16C39 dump this reproduces everything an earlier manual pass
+found — `EDC16C39-5.5x`, `MPC561`, software `1037519573F62JTD80`, hardware
+`0281018720`, `ERCOSEK V3.0.16`, built `16.04.2009` — and additionally turns up a
+second software-number occurrence and four project tags that the manual pass
+missed.
+
+The patterns are Bosch conventions, so this degrades like the naming does. For
+families with no patterns there is a fallback list of unclaimed
+identifier-looking strings. That needed a real filter: most printable runs in a
+flash dump are not text at all, just data that happens to land in `0x20`–`0x7E`
+(`u0u0u0u0…`, `UUUU3333`). Length does not separate those from identifiers, but
+character variety does — hence a distinct-character floor plus rejection of short
+repeating motifs.
+
+A possible VIN is reported when one appears. Worth knowing it can be in there,
+and it never leaves the browser.
 
 ## Translations
 

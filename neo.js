@@ -137,7 +137,100 @@ function ScannerLib() {
     };
   }
 
-  return { VARIANTS: VARIANTS, scan: scan, autoDetect: autoDetect };
+  /* ---- file identification: hashes and printable strings ----
+   * The worker extracts; the main thread interprets. Same split as
+   * recognition vs naming — the patterns stay editable data, not scanner code. */
+
+  function crc32(bytes) {
+    var tbl = new Int32Array(256), c, i, k;
+    for (i = 0; i < 256; i++) {
+      c = i;
+      for (k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      tbl[i] = c;
+    }
+    c = 0xFFFFFFFF;
+    for (i = 0; i < bytes.length; i++) c = (c >>> 8) ^ tbl[(c ^ bytes[i]) & 0xFF];
+    return ((c ^ 0xFFFFFFFF) >>> 0);
+  }
+
+  function md5(bytes) {
+    var S = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+             5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+             4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+             6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
+    var K = new Int32Array(64), i;
+    for (i = 0; i < 64; i++) K[i] = (Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296)) | 0;
+
+    var n = bytes.length;
+    var blocks = Math.floor((n + 8) / 64) + 1;
+    var last = blocks * 64;
+    var bitLo = (n * 8) >>> 0, bitHi = Math.floor(n / 536870912) >>> 0;
+
+    function byteAt(idx) {
+      if (idx < n) return bytes[idx];
+      if (idx === n) return 0x80;
+      if (idx >= last - 8) {
+        var k = idx - (last - 8);
+        return k < 4 ? (bitLo >>> (8 * k)) & 0xFF : (bitHi >>> (8 * (k - 4))) & 0xFF;
+      }
+      return 0;
+    }
+
+    var a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+    var M = new Int32Array(16);
+    for (var blk = 0; blk < blocks; blk++) {
+      var base = blk * 64, j;
+      for (j = 0; j < 16; j++) {
+        var p = base + j * 4;
+        M[j] = byteAt(p) | (byteAt(p + 1) << 8) | (byteAt(p + 2) << 16) | (byteAt(p + 3) << 24);
+      }
+      var A = a0, B = b0, C = c0, D = d0, F, g;
+      for (i = 0; i < 64; i++) {
+        if (i < 16) { F = (B & C) | (~B & D); g = i; }
+        else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) & 15; }
+        else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) & 15; }
+        else { F = C ^ (B | ~D); g = (7 * i) & 15; }
+        F = (F + A + K[i] + M[g]) | 0;
+        A = D; D = C; C = B;
+        B = (B + ((F << S[i]) | (F >>> (32 - S[i])))) | 0;
+      }
+      a0 = (a0 + A) | 0; b0 = (b0 + B) | 0; c0 = (c0 + C) | 0; d0 = (d0 + D) | 0;
+    }
+
+    function le(v) {
+      var s = '';
+      for (var b = 0; b < 4; b++) s += ('0' + (((v >>> (8 * b)) & 0xFF).toString(16))).slice(-2);
+      return s;
+    }
+    return le(a0) + le(b0) + le(c0) + le(d0);
+  }
+
+  function extractStrings(bytes, minLen, cap) {
+    var out = [], start = -1, n = bytes.length;
+    for (var i = 0; i <= n; i++) {
+      var c = i < n ? bytes[i] : 0;
+      if (c >= 0x20 && c <= 0x7E) { if (start < 0) start = i; continue; }
+      if (start >= 0 && i - start >= minLen) {
+        var s = '';
+        for (var j = start; j < i; j++) s += String.fromCharCode(bytes[j]);
+        out.push({ o: start, s: s });
+        if (out.length >= cap) return out;
+      }
+      start = -1;
+    }
+    return out;
+  }
+
+  function identify(bytes) {
+    return {
+      size: bytes.length,
+      crc32: crc32(bytes),
+      md5: md5(bytes),
+      strings: extractStrings(bytes, 6, 8000)
+    };
+  }
+
+  return { VARIANTS: VARIANTS, scan: scan, autoDetect: autoDetect, identify: identify };
 }
 
 var Scanner = ScannerLib();
@@ -210,6 +303,18 @@ var STRINGS = {
     'err.big': 'That file is larger than 32 MiB; refusing to scan it.',
     'err.read': 'Could not read that file.',
     'conf.high': 'high', 'conf.medium': 'medium', 'conf.low': 'low',
+    'id.chip.title': 'Click for file identification',
+    'id.title': 'File identification',
+    'id.sub': 'hashes, and identifiers read out of the binary',
+    'id.file': 'File', 'id.size': 'Size',
+    'id.computing': 'computing…', 'id.sha.na': 'unavailable in this context',
+    'id.identified': 'Identified',
+    'id.ecu': 'ECU type', 'id.cpu': 'Controller', 'id.sw': 'Software number',
+    'id.hw': 'Hardware number', 'id.banner': 'Build banner', 'id.date': 'Build date',
+    'id.os': 'Operating system', 'id.project': 'Project tag', 'id.vin': 'Possible VIN',
+    'id.nonefound': 'No known identifier patterns matched. The patterns cover the Bosch EDC and ME families; other makers use different formats, so try the strings below.',
+    'id.other': 'Other identifier-like strings',
+    'id.foot': 'Read from {0} printable strings in the file. Everything here was computed in your browser — nothing was uploaded.',
     'kind.rpm': 'rpm', 'kind.pedal': 'pedal', 'kind.iq': 'injection quantity',
     'kind.coolant': 'coolant', 'kind.index': 'index'
   },
@@ -277,6 +382,18 @@ var STRINGS = {
     'err.big': 'Файлът е по-голям от 32 MiB; сканирането е отказано.',
     'err.read': 'Файлът не може да бъде прочетен.',
     'conf.high': 'висока', 'conf.medium': 'средна', 'conf.low': 'ниска',
+    'id.chip.title': 'Щракнете за идентификация на файла',
+    'id.title': 'Идентификация на файла',
+    'id.sub': 'контролни суми и идентификатори, прочетени от двоичния файл',
+    'id.file': 'Файл', 'id.size': 'Размер',
+    'id.computing': 'изчислява се…', 'id.sha.na': 'недостъпно в този контекст',
+    'id.identified': 'Разпознато',
+    'id.ecu': 'Тип ЕБУ', 'id.cpu': 'Контролер', 'id.sw': 'Софтуерен номер',
+    'id.hw': 'Хардуерен номер', 'id.banner': 'Идентификационен ред', 'id.date': 'Дата на компилация',
+    'id.os': 'Операционна система', 'id.project': 'Проектен етикет', 'id.vin': 'Възможен VIN',
+    'id.nonefound': 'Никой познат шаблон не съвпадна. Шаблоните покриват фамилиите Bosch EDC и ME; другите производители използват различни формати, така че вижте низовете по-долу.',
+    'id.other': 'Други низове, подобни на идентификатори',
+    'id.foot': 'Прочетено от {0} печатаеми низа във файла. Всичко тук е изчислено в браузъра ви — нищо не е качено.',
     'kind.rpm': 'обороти', 'kind.pedal': 'педал', 'kind.iq': 'количество впръскване',
     'kind.coolant': 'охл. течност', 'kind.index': 'индекс'
   }
@@ -393,6 +510,85 @@ var DEFAULT_RULES = {
   ]
 };
 
+/* Identification patterns — data, like the naming rules. Each is applied to
+ * every extracted string; `capture` picks a group, `also` adds constraints the
+ * match must satisfy. Ordered as they should appear in the panel.
+ *
+ * These are Bosch conventions and degrade the same way naming does: precise on
+ * the EDC/ME families, and elsewhere the unmatched-strings fallback still gives
+ * you something to read. */
+var ID_PATTERNS = [
+  { id: 'ecu',     re: /\b(EDC\d{2}[A-Z]*\d*(?:[.-]\d+(?:\.\d+)?[a-z]*)?|MED\d+[.\d]*|ME\d+\.\d+[.\d]*|DCM\d+\.\d+|MJD\s?\d+[A-Z\d]*|SID\d{3}|EMS\d{4})\b/, cap: 1, max: 3 },
+  { id: 'cpu',     re: /\b(MPC\d{3}|TC\d{3,4}|ST10[A-Z0-9]*|C16[67]|SH7\d{4})\b/, cap: 1, max: 3 },
+  { id: 'sw',      re: /\b(10\d{8}[A-Z0-9]{0,12})\b/, cap: 1, max: 4 },
+  { id: 'hw',      re: /\b(02[0-9]{8})\b/, cap: 1, max: 4 },
+  { id: 'banner',  re: /^((?:BOSCH|SIEMENS|CONTINENTAL|DELPHI|MAGNETI|MARELLI|VDO)\b.{12,})$/, cap: 1, max: 2 },
+  { id: 'date',    re: /\b(\d{2}\.\d{2}\.(?:19|20)\d{2})\b/, cap: 1, max: 3 },
+  { id: 'os',      re: /\b(ERCOSEK\s*V?[\d.]*[^,]{0,30}|OSEK\s*V?[\d.]+)/, cap: 1, max: 2 },
+  { id: 'project', re: /\b((?:Bosch|Siemens)\.[A-Za-z_0-9]+\.[A-Za-z]+\.[A-Z0-9]+)\b/, cap: 1, max: 6 },
+  /* A VIN is 17 chars without I, O or Q. That alone matches plenty of ordinary
+   * tokens, so require both a letter and a digit and report it as "possible". */
+  { id: 'vin',     re: /\b([A-HJ-NPR-Z0-9]{17})\b/, cap: 1, max: 2,
+                   also: [/[A-HJ-NPR-Z]/, /[0-9]/] }
+];
+
+function interpretIdent(ident) {
+  if (!ident) return null;
+  var found = [], seenAll = {};
+  ID_PATTERNS.forEach(function (p) {
+    var hits = [], seen = {};
+    for (var i = 0; i < ident.strings.length && hits.length < p.max; i++) {
+      var rec = ident.strings[i], m = p.re.exec(rec.s);
+      if (!m) continue;
+      var val = (p.cap ? m[p.cap] : m[0]).trim();
+      if (!val || seen[val]) continue;
+      if (p.also && !p.also.every(function (rx) { return rx.test(val); })) continue;
+      seen[val] = 1; seenAll[val] = 1;
+      hits.push({ value: val, at: rec.o });
+    }
+    if (hits.length) found.push({ id: p.id, hits: hits });
+  });
+
+  /* Anything identifier-shaped that no pattern claimed — the fallback that
+   * keeps the panel useful on families we have no patterns for.
+   *
+   * Most printable runs in a flash dump are not text at all, just data that
+   * happens to land in 0x20-0x7E: "u0u0u0u0…", "UUUU3333". Length does not
+   * separate those from real identifiers but character variety does, so require
+   * a minimum number of distinct characters and reject short repeating motifs. */
+  function looksLikeText(str) {
+    var seen = {}, distinct = 0, i;
+    for (i = 0; i < str.length; i++) {
+      if (!seen[str[i]]) { seen[str[i]] = 1; distinct++; }
+    }
+    if (distinct < 6) return false;
+    for (var w = 1; w <= 4; w++) {
+      if (str.length < w * 3) break;
+      var unit = str.slice(0, w), reps = 1;
+      while (str.slice(reps * w, reps * w + w) === unit) reps++;
+      if (reps >= 3 && reps * w >= str.length * 0.75) return false;
+    }
+    return true;
+  }
+
+  var other = [], oseen = {};
+  ident.strings.forEach(function (rec) {
+    var s = rec.s.trim();
+    if (s.length < 10 || s.length > 90) return;
+    if (!looksLikeText(s)) return;
+    if (!/^[A-Za-z0-9._/\\ :+-]+$/.test(s)) return;
+    if (!/[0-9]/.test(s) || !/[A-Za-z]/.test(s)) return;
+    if (seenAll[s] || oseen[s]) return;
+    var claimed = Object.keys(seenAll).some(function (v) { return s.indexOf(v) >= 0; });
+    if (claimed) return;
+    oseen[s] = 1;
+    other.push({ value: s, at: rec.o });
+  });
+  other.sort(function (a, b) { return b.value.length - a.value.length; });
+
+  return { found: found, other: other.slice(0, 10), total: ident.strings.length };
+}
+
 var RuleEngine = (function () {
 
   function nearAny(axis, want, tol) {
@@ -498,7 +694,7 @@ function scaleVal(v, r) {
 var S = {
   name: '', bytes: null,
   result: null, summary: null, rules: DEFAULT_RULES, maps: [], groups: [],
-  strips: [], zoom: 4
+  strips: [], zoom: 4, ident: null, sha: null
 };
 
 /* a compact accessor over one map, X-major storage */
@@ -905,6 +1101,8 @@ function openMap(m) {
 /* ------------------------------------------------------------------ *
  * 7. Modals: rules, checksums, map list
  * ------------------------------------------------------------------ */
+var openModalKind = null;
+
 function openModal(title, sub, html, actions) {
   $('m-title').textContent = title;
   $('m-sub').innerHTML = sub || '';
@@ -920,9 +1118,74 @@ function openModal(title, sub, html, actions) {
   });
   $('modal').classList.add('open');
 }
-function closeModal() { $('modal').classList.remove('open'); }
+function closeModal() { $('modal').classList.remove('open'); openModalKind = null; }
+
+function showIdent() {
+  openModalKind = showIdent;
+  var id = S.ident, info = interpretIdent(id);
+  var rows = '';
+  function row(k, v) {
+    return '<tr><td style="color:var(--ink-3);white-space:nowrap">' + k + '</td><td>' + v + '</td></tr>';
+  }
+
+  rows += row(t('id.file'), '<b>' + S.name + '</b>');
+  rows += row(t('id.size'), fmtBytes(id.size) + ' <span style="color:var(--ink-3)">('
+    + id.size.toLocaleString() + ' B)</span>');
+  rows += row('MD5', '<span class="mono">' + id.md5 + '</span>');
+  rows += row('CRC32', '<span class="mono">0x'
+    + id.crc32.toString(16).toUpperCase().padStart(8, '0') + '</span>');
+  rows += row('SHA-256', '<span class="mono" id="sha">' + t('id.computing') + '</span>');
+
+  var html = '<table class="rep" style="width:auto">' + rows + '</table>';
+
+  if (info.found.length) {
+    html += '<h3>' + t('id.identified') + '</h3><table class="rep" style="width:auto">';
+    info.found.forEach(function (f) {
+      var vals = f.hits.map(function (h) {
+        return '<span class="mono">' + h.value.replace(/</g, '&lt;') + '</span>'
+          + ' <span style="color:var(--ink-3)">@' + hx(h.at) + '</span>';
+      }).join('<br>');
+      html += row(t('id.' + f.id), vals);
+    });
+    html += '</table>';
+  } else {
+    html += '<p style="color:var(--ink-3)">' + t('id.nonefound') + '</p>';
+  }
+
+  if (info.other.length) {
+    html += '<h3>' + t('id.other') + '</h3>'
+      + '<div class="scroll" style="max-height:26vh"><table class="rep" style="width:auto">';
+    info.other.forEach(function (o) {
+      html += row('<span class="mono" style="color:var(--ink-3)">' + hx(o.at) + '</span>',
+        '<span class="mono">' + o.value.replace(/</g, '&lt;') + '</span>');
+    });
+    html += '</table></div>';
+  }
+
+  html += '<p class="note">' + t('id.foot', info.total) + '</p>';
+
+  openModal(t('id.title'), t('id.sub'), html, []);
+
+  /* SHA-256 comes from WebCrypto, which is async and needs a secure context —
+   * https and file:// qualify, plain http does not. */
+  (function () {
+    var el = $('sha');
+    if (!el) return;
+    if (S.sha) { el.textContent = S.sha; return; }
+    try {
+      crypto.subtle.digest('SHA-256', S.bytes).then(function (buf) {
+        var b = new Uint8Array(buf), s = '';
+        for (var i = 0; i < b.length; i++) s += ('0' + b[i].toString(16)).slice(-2);
+        S.sha = s;
+        var cur = $('sha');
+        if (cur) cur.textContent = s;
+      }, function () { el.textContent = t('id.sha.na'); });
+    } catch (e) { el.textContent = t('id.sha.na'); }
+  })();
+}
 
 function showList() {
+  openModalKind = showList;
   var named = S.maps.filter(function (m) { return m.label; }).length;
   var html = '<div class="tablewrap"><table class="rep"><tr><th>' + t('list.address')
     + '</th><th>' + t('list.size') + '</th><th>' + t('list.name') + '</th><th>' + t('list.x')
@@ -1015,7 +1278,8 @@ function makeWorker() {
       + 'self.onmessage=function(e){\n'
       + '  var b=new Uint8Array(e.data.buf);\n'
       + '  var rep=function(p){self.postMessage({type:"progress",p:p});};\n'
-      + '  self.postMessage({type:"done",result:S.autoDetect(b,rep)});\n'
+      + '  var r=S.autoDetect(b,rep);\n'
+      + '  self.postMessage({type:"done",result:r,ident:S.identify(b)});\n'
       + '};';
     var url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
     var w = new Worker(url);
@@ -1031,9 +1295,10 @@ function runScan() {
   $('prog').style.display = '';
   $('pbar').value = 0;
 
-  function finish(res) {
+  function finish(res, ident) {
     S.result = res.best;
     S.summary = res.summary;
+    S.ident = ident; S.sha = null;
     classifyAll();
     zoomLabel();
     updateChips();
@@ -1048,19 +1313,22 @@ function runScan() {
   if (worker) {
     worker.onmessage = function (e) {
       if (e.data.type === 'progress') { $('pbar').value = Math.round(e.data.p * 100); return; }
-      finish(e.data.result);
+      finish(e.data.result, e.data.ident);
     };
     worker.onerror = function () { worker = false; runScan(); };
     var copy = S.bytes.slice().buffer;
     worker.postMessage({ buf: copy }, [copy]);
   } else {
-    setTimeout(function () { finish(Scanner.autoDetect(S.bytes)); }, 30);
+    setTimeout(function () {
+      finish(Scanner.autoDetect(S.bytes), Scanner.identify(S.bytes));
+    }, 30);
   }
 }
 
 function updateChips() {
   $('bar').style.display = '';
   $('c-file').innerHTML = '<b>' + (S.name || 'buffer') + '</b> · ' + fmtBytes(S.bytes.length);
+  $('c-file').title = t('id.chip.title');
   var named = S.maps.filter(function (m) { return m.label; }).length;
   var flat = S.maps.filter(function (m) { return m.flat; }).length;
   $('c-maps').innerHTML = t('chip.tables', S.maps.length, tableWord(S.maps.length), named, flat);
@@ -1101,6 +1369,7 @@ function readFile(file, cb) {
 function goHome() {
   S.name = ''; S.bytes = null; S.result = null; S.summary = null;
   S.maps = []; S.groups = []; S.strips = [];
+  S.ident = null; S.sha = null;
   currentMap = null;
   $('strips').innerHTML = '';
   $('bar').style.display = 'none';
@@ -1139,7 +1408,7 @@ function applyLang(lang) {
     updateChips();
     renderStrips();
     if (currentMap) openMap(currentMap);
-    if ($('modal').classList.contains('open')) showList();
+    if ($('modal').classList.contains('open') && openModalKind) openModalKind();
   }
 }
 
@@ -1148,6 +1417,7 @@ $('home').addEventListener('click', goHome);
 $('zoom-in').addEventListener('click', function () { setZoom(1); });
 $('zoom-out').addEventListener('click', function () { setZoom(-1); });
 $('onlymaps').addEventListener('change', renderStrips);
+$('c-file').addEventListener('click', function () { if (S.ident) showIdent(); });
 $('btn-list').addEventListener('click', showList);
 $('btn-png').addEventListener('click', exportPNG);
 $('d-close').addEventListener('click', function () { $('drawer').classList.remove('open'); });
