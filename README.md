@@ -242,9 +242,11 @@ block to each rule, and extend `UNITS`. Nothing else needs touching.
 - **EDC15 3D maps cannot be paired with their axes.** The link exists only in
   the C167 code, so a block is shown with its dimensions and values but index
   headers rather than real axes.
-- Deeply stacked callouts on tightly packed regions make a tall label lane. The
-  placement is collision-free by construction, not by tuning, so it grows rather
-  than overlapping.
+- **Not every region gets a callout on a dense file.** Collision-free stacking
+  is capped at six levels, because an EDC15 row can hold 135 labelled records
+  and an uncapped lane put the text ~1600 px above the band it pointed at.
+  Named groups take the slots first, widest band breaking ties, and each row
+  reports how many it left out. Everything is still in the map list.
 
 ## Deliberately not in the UI
 

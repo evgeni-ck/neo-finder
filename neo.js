@@ -469,6 +469,7 @@ var STRINGS = {
     'id.foot': 'Read from {0} printable strings in the file. Everything here was computed in your browser — nothing was uploaded.',
     'kind.gear': 'gear',
     'form.block': '3D map block (axes not paired)',
+    'labels.more': '+{0} more not labelled',
     'form.axis': 'axis record',
     'form.curve': 'curve with inline axis',
     'form.grid': 'map with both axes',
@@ -559,6 +560,7 @@ var STRINGS = {
     'id.foot': 'Прочетено от {0} печатаеми низа във файла. Всичко тук е изчислено в браузъра ви — нищо не е качено.',
     'kind.gear': 'предавка',
     'form.block': '3D блок (осите не са свързани)',
+    'labels.more': '+още {0} без етикет',
     'form.axis': 'запис на ос',
     'form.curve': 'крива с вградена ос',
     'form.grid': 'карта с две оси',
@@ -944,6 +946,7 @@ function classifyAll() {
  * container scrolls horizontally instead of squashing the plot into
  * unreadability. */
 var MIN_CSS = 680;
+var MAX_LABEL_LEVELS = 5;      // beyond this a lane stops being readable
 
 function layoutWidth() {
   var host = $('stripwrap');
@@ -1014,6 +1017,12 @@ function planStrips(cssW, G) {
      * width and drawing on another is what makes labels overlap. */
     var px = function (ad) { return G.left + (ad - a0) / (a1 - a0) * plotW; };
     var levels = [], labels = [];
+    /* Collision-free stacking has to be bounded. An EDC16 row needs three or
+     * four levels; an EDC15 row can hold 135 labelled records, and growing the
+     * lane to fit them all pushed the text ~1600 px above the band it points
+     * at — drawn, but useless. So label the widest bands first, cap the stack,
+     * and report how many were left out. */
+    var cand = [];
     here.forEach(function (g) {
       if (!g.label && g.count < 3) return;             // keep unnamed clutter out
       var txt = groupText(g);
@@ -1021,27 +1030,42 @@ function planStrips(cssW, G) {
       var w1 = meas.measureText(txt.t).width;
       meas.font = subFont;
       var w2 = meas.measureText(txt.s).width;
-      var wid = Math.max(w1, w2);
-      var xm = (px(Math.max(a0, g.start)) + px(Math.min(a1, g.end))) / 2;
+      cand.push({ g: g, txt: txt, wid: Math.max(w1, w2),
+                  band: px(Math.min(a1, g.end)) - px(Math.max(a0, g.start)),
+                  xm: (px(Math.max(a0, g.start)) + px(Math.min(a1, g.end))) / 2 });
+    });
+    /* Named groups take the limited levels first: a recognised map losing its
+     * label to a wider but anonymous "13 × 16×16" band is backwards. Width
+     * only breaks ties within each tier. */
+    cand.sort(function (a, b) {
+      return (b.g.label ? 1 : 0) - (a.g.label ? 1 : 0) || b.band - a.band || a.xm - b.xm;
+    });
+
+    var omitted = 0, rowLvl = 0;
+    cand.forEach(function (c) {
       var edge = Math.min(240, plotW * 0.28);
-      var anchor = xm > G.left + plotW - edge ? 'right'
-                 : (xm < G.left + edge * 0.75 ? 'left' : 'center');
-      var x0 = anchor === 'right' ? xm - wid : anchor === 'left' ? xm : xm - wid / 2;
-      var span = [x0 - 8, x0 + wid + 8], lvl = 0;
+      var anchor = c.xm > G.left + plotW - edge ? 'right'
+                 : (c.xm < G.left + edge * 0.75 ? 'left' : 'center');
+      var x0 = anchor === 'right' ? c.xm - c.wid : anchor === 'left' ? c.xm : c.xm - c.wid / 2;
+      var span = [x0 - 8, x0 + c.wid + 8], lvl = 0;
       for (;;) {
+        if (lvl > MAX_LABEL_LEVELS) { omitted++; return; }
         if (!levels[lvl]) levels[lvl] = [];
         var clash = levels[lvl].some(function (s) { return span[0] < s[1] && span[1] > s[0]; });
         if (!clash) break;
         lvl++;
       }
       levels[lvl].push(span);
-      if (lvl > maxLvl) maxLvl = lvl;
-      labels.push({ g: g, lvl: lvl, anchor: anchor, txt: txt });
+      if (lvl > rowLvl) rowLvl = lvl;
+      labels.push({ g: c.g, lvl: lvl, anchor: anchor, txt: c.txt });
     });
-    strips.push({ a0: a0, a1: a1, groups: here, labels: labels, G: G, cssW: cssW });
+    if (rowLvl > maxLvl) maxLvl = rowLvl;
+    strips.push({ a0: a0, a1: a1, groups: here, labels: labels, G: G, cssW: cssW,
+                  omitted: omitted, lvls: rowLvl });
   }
-  var lane = (maxLvl + 1) * G.lineH + G.labPad;
-  strips.forEach(function (s) { s.lane = lane; });
+  /* Per strip, not one global maximum: a row with a single label used to get
+   * the tallest row's lane, i.e. a screenful of blank space above its plot. */
+  strips.forEach(function (s) { s.lane = (s.lvls + 1) * G.lineH + G.labPad; });
   return strips;
 }
 
@@ -1143,6 +1167,12 @@ function drawStrip(canvas, st) {
     g.fillStyle = C.ink2; g.font = (G.narrow ? '10px ' : '11px ') + 'ui-sans-serif,sans-serif';
     g.fillText(L.txt.s, xm, ly + 13);
   });
+
+  if (st.omitted) {
+    g.textAlign = 'right'; g.fillStyle = C.ink3;
+    g.font = '11px ui-sans-serif,sans-serif';
+    g.fillText(t('labels.more', st.omitted), G.left + plotW, y0 - 6);
+  }
 
   st.geom = { plotW: plotW, y0: y0, H: H, cssW: cssW };
 }
