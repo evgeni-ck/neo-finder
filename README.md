@@ -39,8 +39,9 @@ Open a file with the button, or drag one anywhere onto the page.
 - Hover for the address, the word value, and which part of a table you are in
   (header / X axis / Y axis / data)
 - Click any band to open the table as a heatmapped grid with scaled axes
-- Detects word size and endianness by trying each variant and keeping whichever
-  covers the most bytes — silently, with no control to get wrong
+- Detects the container family (EDC16 or EDC15), word size and endianness by
+  trying each and keeping whichever covers the most bytes — silently, with no
+  control to get wrong
 - Exports the map list as CSV and the whole view as PNG
 - **English and Bulgarian**, including the map names, units and canvas labels.
   Follows the browser locale on first visit, then remembers the toggle
@@ -100,6 +101,43 @@ false positive is visible rather than silent.
 X-major storage order (rather than row-major) was confirmed on every non-square
 map by second-difference smoothness — the transpose visibly shears the rows.
 
+### 1b. A second family: the EDC15 container
+
+EDC15-class images (C167, little-endian) use a completely different shape,
+read out of a real dump by hand and then verified by chaining:
+
+```
+curve  [u16 tag][u16 n][n × u16 axis, ascending][n × u16 data]   4 + 4n
+axis   [u16 tag][u16 n][n × u16 ascending]                       4 + 2n
+```
+
+**The tag is not a size or a checksum — it names the input.** Curves sharing a
+tag share an axis, which is what makes any naming possible on this family: a
+curve is labelled by the variable it is indexed by.
+
+Two things this needs that EDC16 does not:
+
+- **DP instead of greedy chaining.** A curve happily swallows the next record's
+  header as its data, so the segmentation is solved by maximising covered bytes
+  across the whole file, with a rule rejecting data that begins with something
+  header-shaped.
+- **3D maps have no header at all** — bare rectangular blocks whose axes live in
+  the separate axis records, paired only by the code. Row width is recovered
+  from row-to-row periodicity and carries a confidence ratio rather than being
+  asserted. It can be off by one on very regular data, so the number is shown.
+
+The two families compete on the same measure, bytes covered, and separate
+cleanly because they disagree on endianness as well as shape:
+
+| File | EDC16 container | EDC15 container | Picked |
+|---|---|---|---|
+| EDC16C39, 2 MiB | **464 recs / 170 358 B** | 9 recs / 172 B | EDC16 |
+| EDC15, 1 MiB | 0 recs / 0 B | **622 recs / 51 320 B** | EDC15 |
+
+On that EDC15 dump: 399 curves, 146 axis records, 77 map blocks, 434 named by
+input (121 engine speed, 72 coolant temperature, 46 injection quantity, 44
+gear). Both files scan in about 110 ms.
+
 ### 2. Naming the regions — a rule pack
 
 Naming lives in `DEFAULT_RULES` at the top of `neo.js`, deliberately kept as data
@@ -112,7 +150,7 @@ rather than logic. Recognition is universal; naming is per-ECU-family.
 | round steps ending 2800–8000, starting under 1300 | engine speed, raw = rpm |
 | ends at `8192`, contains `819`, `1638`, `4096` | pedal, `8192 = 100 %` |
 | starts under 700, ends 2500–12000 | injection quantity, raw/100 = mg/stroke |
-| starts 2200–2750, ends 2850–3900 | coolant temperature, raw/10 − 273.1 = °C |
+|  starts 2200–2750, ends 2850–4000 | coolant temperature, raw/10 − 273.1 = °C |
 
 Each kind carries a **role** of `x`, `y` or `any`, and this turned out to matter
 more than the value ranges. An injection-quantity axis of 400…5000 is
@@ -198,10 +236,12 @@ block to each rule, and extend `UNITS`. Nothing else needs touching.
   container accounts for about 61 % of the calibration area; the rest shows as
   unbanded. Reaching it needs the code side — finding the `lis`/`ori` pairs that
   build those addresses.
-- **The self-describing container is the exception, not the rule.** EDC15, EDC17,
-  Marelli MJD and Delphi DCM keep axes elsewhere and reference them only from
-  code. For those this degrades to a candidate finder and needs human
-  confirmation.
+- **Two families are supported; the rest are not.** EDC17, Marelli MJD and
+  Delphi DCM use other layouts again. For those this still degrades to a
+  candidate finder.
+- **EDC15 3D maps cannot be paired with their axes.** The link exists only in
+  the C167 code, so a block is shown with its dimensions and values but index
+  headers rather than real axes.
 - Deeply stacked callouts on tightly packed regions make a tall label lane. The
   placement is collision-free by construction, not by tuning, so it grows rather
   than overlapping.

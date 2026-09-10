@@ -128,13 +128,164 @@ function ScannerLib() {
     }
     var best = all[0];
     for (i = 1; i < all.length; i++) if (all[i].covered > best.covered) best = all[i];
+
+    /* The EDC15 container is a different family, not another variant of the
+     * same one, so it competes on the same measure: bytes covered. The two
+     * disagree on endianness as well as shape, which is why the margin is
+     * absolute rather than marginal on real files. */
+    var e15 = scanEdc15(bytes, function (f) { if (onProgress) onProgress(0.8 + 0.2 * f); });
+    all.push({ variant: 'edc15', variantLabel: 'EDC15 container (LE)',
+               maps: e15.maps, covered: e15.covered, rawHits: e15.maps.length,
+               le: true, w: 2, family: 'edc15' });
+    if (e15.covered > best.covered) {
+      /* Only worth hunting bare 3D blocks once this family has actually won —
+       * on an EDC16 image the gaps are program code and it would find noise. */
+      var blocks = find3DBlocks(bytes, e15.maps);
+      var merged = e15.maps.concat(blocks);
+      merged.sort(function (a, b) { return a.off - b.off; });
+      best = { variant: 'edc15', variantLabel: 'EDC15 container (LE)', family: 'edc15',
+               le: true, w: 2, maps: merged, rawHits: e15.maps.length,
+               covered: e15.covered + blocks.reduce(function (s, b) { return s + b.len; }, 0),
+               blocks: blocks.length, size: bytes.length };
+    } else if (!best.family) best.family = 'edc16';
+
+    // value stats for whichever family won (the EDC16 path already has them)
+    var rd16 = best.le ? function (o) { return bytes[o] | (bytes[o + 1] << 8); }
+                       : function (o) { return (bytes[o] << 8) | bytes[o + 1]; };
+    for (i = 0; i < best.maps.length; i++) {
+      var m = best.maps[i];
+      if (m.min != null) continue;
+      var src = m.dt >= 0 ? m.dt : m.xo, cnt = m.dt >= 0 ? m.nx * m.ny : m.nx;
+      var lo = Infinity, hi = -Infinity;
+      for (var q = 0; q < cnt; q++) { var v2 = rd16(src + q * 2); if (v2 < lo) lo = v2; if (v2 > hi) hi = v2; }
+      m.min = lo; m.max = hi; m.flat = (lo === hi);
+    }
+
     return {
       best: best,
       summary: all.map(function (r) {
-        return { variant: r.variant, label: r.variantLabel, maps: r.maps.length,
-                 covered: r.covered, rawHits: r.rawHits };
+        return { variant: r.variant, label: r.variantLabel,
+                 maps: r.maps.length, covered: r.covered, rawHits: r.rawHits };
       })
     };
+  }
+
+  /* ---- EDC15-family container ----
+   * A different shape entirely, read out of an EDC15 image by hand:
+   *     curve  [u16 tag][u16 n][n × u16 axis, ascending][n × u16 data]  4+4n
+   *     axis   [u16 tag][u16 n][n × u16 ascending]                      4+2n
+   * The tag is not a size — curves sharing a tag share an axis, so it names
+   * the input variable. Little-endian, because C167.
+   *
+   * Greedy chaining mis-parses this: a curve happily swallows the next
+   * record's header as its data. So solve the segmentation with a DP that
+   * maximises covered bytes, plus a rule rejecting data that begins with
+   * something header-shaped. */
+  function scanEdc15(bytes, onProgress) {
+    var N = bytes.length;
+    var rd = function (o) { return bytes[o] | (bytes[o + 1] << 8); };
+    function asc(o, n) {
+      var p = rd(o);
+      for (var i = 1; i < n; i++) { var v = rd(o + i * 2); if (v <= p) return false; p = v; }
+      return true;
+    }
+    function hdrLike(o) { return rd(o) >= 0x8000 && rd(o + 2) >= 3 && rd(o + 2) <= 64; }
+
+    var W = (N >> 1) + 1;
+    var best = new Int32Array(W), pick = new Int32Array(W);
+    for (var i = W - 2; i >= 0; i--) {
+      var o = i * 2, v = best[i + 1], p = 0;
+      var tag = rd(o), n = rd(o + 2);
+      if (tag >= 0x8000 && n >= 4 && n <= 64 && o + 4 + 4 * n <= N && asc(o + 4, n)) {
+        var la = 4 + 2 * n, lc = 4 + 4 * n, j;
+        j = i + la / 2;
+        if (j <= W - 1 && la + best[j] > v) { v = la + best[j]; p = la; }
+        if (!hdrLike(o + 4 + 2 * n)) {
+          j = i + lc / 2;
+          if (j <= W - 1 && lc + best[j] > v) { v = lc + best[j]; p = lc; }
+        }
+      }
+      best[i] = v; pick[i] = p;
+      if (onProgress && (i & 0x3FFFF) === 0) onProgress(1 - i / W);
+    }
+
+    var maps = [], k = 0;
+    while (k < W - 1) {
+      if (pick[k] > 0) {
+        var off = k * 2, len = pick[k], cnt = rd(off + 2);
+        var isCurve = len === 4 + 4 * cnt;
+        maps.push({ off: off, nx: cnt, ny: 1, len: len,
+                    xo: off + 4, yo: -1, dt: isCurve ? off + 4 + 2 * cnt : -1,
+                    tag: rd(off), form: isCurve ? 'curve' : 'axis', chainLen: 1 });
+        k += len / 2;
+      } else k++;
+    }
+    return { maps: maps, covered: best[0] };
+  }
+
+  /* EDC15 3D maps carry no header at all — bare rectangular u16 blocks whose
+   * axes live in the separate axis records. The row width is still
+   * recoverable: in a real map each row resembles the one above, so the true
+   * width minimises mean row-to-row difference. Comparing that against
+   * unrelated widths gives a confidence ratio rather than a bare guess. */
+  function find3DBlocks(bytes, occupied) {
+    var N = bytes.length, rd = function (o) { return bytes[o] | (bytes[o + 1] << 8); };
+    function cost(a, b, w) {
+      var s = 0, n = 0;
+      for (var o = a + 2 * w; o + 1 < b; o += 2) { s += Math.abs(rd(o) - rd(o - 2 * w)); n++; }
+      return n ? s / n : Infinity;
+    }
+    function widthAt(a, b) {
+      var bw = 0, bc = Infinity, all = [], w, i;
+      for (w = 4; w <= 32; w++) {
+        if ((b - a) / 2 < w * 3) break;
+        var c = cost(a, b, w);
+        all.push([w, c]);
+        if (c < bc) { bc = c; bw = w; }
+      }
+      if (!bw) return null;
+      var other = Infinity;
+      for (i = 0; i < all.length; i++) {
+        if (Math.abs(all[i][0] - bw) > 1 && all[i][1] < other) other = all[i][1];
+      }
+      return { w: bw, ratio: other === Infinity ? 1 : other / (bc || 1e-9) };
+    }
+
+    var occ = occupied.slice().sort(function (a, b) { return a.off - b.off; });
+    var gaps = [], cur = 0, i;
+    for (i = 0; i < occ.length; i++) {
+      if (occ[i].off > cur) gaps.push([cur, occ[i].off]);
+      cur = Math.max(cur, occ[i].off + occ[i].len);
+    }
+    if (cur < N) gaps.push([cur, N]);
+
+    var out = [], WIN = 0x100;
+    function pushBlock(run, end) {
+      var ny = Math.floor((end - run.o) / (2 * run.w));
+      if (ny < 4) return;
+      out.push({ off: run.o, nx: run.w, ny: ny, len: run.w * ny * 2,
+                 xo: -1, yo: -1, dt: run.o, form: 'block', chainLen: 1,
+                 ratio: Math.round(run.r * 10) / 10 });
+    }
+    for (var g = 0; g < gaps.length; g++) {
+      var A = gaps[g][0], B = gaps[g][1];
+      if (B - A < 256) continue;
+      var uniq = {}, u = 0;
+      for (var o2 = A; o2 < Math.min(B, A + 2048); o2++) {
+        if (!uniq[bytes[o2]]) { uniq[bytes[o2]] = 1; u++; }
+      }
+      if (u < 16) continue;                    // fill or near-constant: not a map
+      var run = null;
+      for (var w0 = A; w0 + WIN <= B; w0 += WIN) {
+        var r = widthAt(w0, Math.min(w0 + WIN * 2, B));
+        var ww = (r && r.ratio >= 1.5) ? r.w : 0;
+        if (run && run.w === ww) { if (r && r.ratio > run.r) run.r = r.ratio; continue; }
+        if (run && run.w) pushBlock(run, w0);
+        run = { o: w0, w: ww, r: r ? r.ratio : 0 };
+      }
+      if (run && run.w) pushBlock(run, B);
+    }
+    return out;
   }
 
   /* ---- file identification: hashes and printable strings ----
@@ -316,6 +467,16 @@ var STRINGS = {
     'id.nonefound': 'No known identifier patterns matched. The patterns cover the Bosch EDC and ME families; other makers use different formats, so try the strings below.',
     'id.other': 'Other identifier-like strings',
     'id.foot': 'Read from {0} printable strings in the file. Everything here was computed in your browser — nothing was uploaded.',
+    'kind.gear': 'gear',
+    'form.block': '3D map block (axes not paired)',
+    'form.axis': 'axis record',
+    'form.curve': 'curve with inline axis',
+    'form.grid': 'map with both axes',
+    'form.axisof': '{0} axis',
+    'form.curveof': 'curve indexed by {0}',
+    'd.form': 'Record form',
+    'd.noaxes': 'none in the file — an EDC15 3D map is a bare block, its axes are stored separately and paired only by the code',
+    'd.confblock': 'row width from periodicity, confidence ×{0}',
     'kind.rpm': 'rpm', 'kind.pedal': 'pedal', 'kind.iq': 'injection quantity',
     'kind.coolant': 'coolant', 'kind.index': 'index'
   },
@@ -396,6 +557,16 @@ var STRINGS = {
     'id.nonefound': 'Никой познат шаблон не съвпадна. Шаблоните покриват фамилиите Bosch EDC и ME; другите производители използват различни формати, така че вижте низовете по-долу.',
     'id.other': 'Други низове, подобни на идентификатори',
     'id.foot': 'Прочетено от {0} печатаеми низа във файла. Всичко тук е изчислено в браузъра ви — нищо не е качено.',
+    'kind.gear': 'предавка',
+    'form.block': '3D блок (осите не са свързани)',
+    'form.axis': 'запис на ос',
+    'form.curve': 'крива с вградена ос',
+    'form.grid': 'карта с две оси',
+    'form.axisof': 'ос {0}',
+    'form.curveof': 'крива по {0}',
+    'd.form': 'Вид запис',
+    'd.noaxes': 'няма във файла — 3D картата при EDC15 е гол блок, осите се пазят отделно и се свързват само от кода',
+    'd.confblock': 'ширина на реда от периодичност, увереност ×{0}',
     'kind.rpm': 'обороти', 'kind.pedal': 'педал', 'kind.iq': 'количество впръскване',
     'kind.coolant': 'охл. течност', 'kind.index': 'индекс'
   }
@@ -446,11 +617,13 @@ var DEFAULT_RULES = {
     { kind: 'pedal', role: 'any', unit: '%', factor: 0.01220703125,
       test: { minPoints: 8, lastMin: 8100, lastMax: 8400, nearAll: [819, 1638, 4096] } },
     { kind: 'coolant', role: 'any', unit: '°C', factor: 0.1, offset: -273.1,
-      test: { minPoints: 4, firstMin: 2200, firstMax: 2750, lastMin: 2850, lastMax: 3900 } },
+      test: { minPoints: 4, firstMin: 2200, firstMax: 2750, lastMin: 2850, lastMax: 4000 } },
     { kind: 'rpm', role: 'x', unit: 'rpm', factor: 1,
       test: { minPoints: 6, firstMax: 1300, lastMin: 2800, lastMax: 8000 } },
     { kind: 'iq', role: 'y', unit: 'mg/stroke', factor: 0.01,
       test: { minPoints: 6, firstMax: 700, lastMin: 2500, lastMax: 12000 } },
+    { kind: 'gear', role: 'any', unit: '', factor: 1,
+      test: { minPoints: 4, firstMax: 3, lastMax: 16 } },
     { kind: 'index', role: 'any', unit: '', factor: 1, test: { lastMax: 64 } }
   ],
   /* First match wins, so order is the disambiguation mechanism. trendX/trendY
@@ -603,7 +776,7 @@ var RuleEngine = (function () {
     var first = axis[0], last = axis[axis.length - 1];
     for (var i = 0; i < rules.axisKinds.length; i++) {
       var k = rules.axisKinds[i], t = k.test || {};
-      if (role && k.role && k.role !== 'any' && k.role !== role) continue;
+      if (role && role !== 'any' && k.role && k.role !== 'any' && k.role !== role) continue;
       if (t.minPoints != null && axis.length < t.minPoints) continue;
       if (t.firstMin != null && first < t.firstMin) continue;
       if (t.firstMax != null && first > t.firstMax) continue;
@@ -638,8 +811,9 @@ var RuleEngine = (function () {
   function want(dir) { return dir === 'up' ? 1 : dir === 'down' ? -1 : 0; }
 
   function classify(view, rules) {
-    var xk = kindOf(view.X, rules, 'x');
-    var yk = view.ny > 1 ? kindOf(view.Y, rules, 'y') : null;
+    if (!view.X) return { xKind: null, yKind: null, rule: null };   // bare block
+    var xk = kindOf(view.X, rules, view.form === 'grid' ? 'x' : 'any');
+    var yk = view.Y && view.ny > 1 ? kindOf(view.Y, rules, 'y') : null;
     var res = { xKind: xk, yKind: yk, rule: null };
     var tx = null, ty = null;
     for (var i = 0; i < rules.maps.length; i++) {
@@ -699,18 +873,28 @@ var S = {
   strips: [], zoom: 4, ident: null, sha: null
 };
 
-/* a compact accessor over one map, X-major storage */
+/* A compact accessor over one record. Four forms now:
+ *   grid   EDC16 3D — both axes present, data X-major
+ *   curve  EDC15 2D — one axis, data alongside it
+ *   axis   EDC15 axis-only record — no data at all
+ *   block  EDC15 bare 3D — data only, row-major, axes unknown
+ * The differences stop here; everything above this reads X/Y/at. */
 function viewOf(m) {
   var b = S.bytes, le = S.result.le, w = S.result.w;
   var rd16 = le ? function (o) { return b[o] | (b[o + 1] << 8); }
                 : function (o) { return (b[o] << 8) | b[o + 1]; };
   function ax(o, n) { var a = []; for (var i = 0; i < n; i++) a.push(rd16(o + i * 2)); return a; }
-  function at(ix, iy) {
+  var form = m.form || 'grid', at;
+  if (form === 'axis') at = function (ix) { return rd16(m.xo + ix * 2); };
+  else if (form === 'curve') at = function (ix) { return rd16(m.dt + ix * 2); };
+  else if (form === 'block') at = function (ix, iy) { return rd16(m.dt + (iy * m.nx + ix) * 2); };
+  else at = function (ix, iy) {
     var i = ix * m.ny + iy;
     return w === 2 ? rd16(m.dt + i * 2) : b[m.dt + i];
-  }
-  return { m: m, nx: m.nx, ny: m.ny, min: m.min, max: m.max,
-           X: ax(m.xo, m.nx), Y: ax(m.yo, m.ny), at: at };
+  };
+  return { m: m, form: form, nx: m.nx, ny: m.ny, min: m.min, max: m.max,
+           X: m.xo >= 0 ? ax(m.xo, m.nx) : null,
+           Y: m.yo >= 0 ? ax(m.yo, m.ny) : null, at: at };
 }
 
 /* ------------------------------------------------------------------ *
@@ -723,6 +907,14 @@ function classifyAll() {
     var c = RuleEngine.classify(v, S.rules);
     m.rule = c.rule; m.xKind = c.xKind; m.yKind = c.yKind;
     m.label = ruleLabel(c.rule);          // display label in the current language
+    /* EDC15 records get their name from the axis, not from a map rule: the tag
+     * tells you which input a curve uses, which is genuinely all that can be
+     * established without a definition file. */
+    if (!m.label) {
+      if (m.form === 'block') m.label = t('form.block');
+      else if (m.form === 'axis') m.label = m.xKind ? t('form.axisof', kindName(m.xKind)) : t('form.axis');
+      else if (m.form === 'curve' && m.xKind) m.label = t('form.curveof', kindName(m.xKind));
+    }
   }
   // group consecutive maps sharing a label (or both unnamed with equal shape)
   S.groups = [];
@@ -1005,8 +1197,11 @@ function onHover(e, st) {
   var h = '<div class="t mono">' + hx(ad) + '</div>'
         + '<div class="r">' + t('tip.word', word, hx(word, 4)) + '</div>';
   if (m) {
-    var part = ad < m.xo ? t('part.header') : ad < m.yo ? t('part.x')
-             : ad < m.dt ? t('part.y') : t('part.data');
+    var part = m.form === 'block' ? t('part.data')
+             : ad < m.xo ? t('part.header')
+             : (m.yo >= 0 && ad < m.yo) ? t('part.x')
+             : (m.dt >= 0 && ad < m.dt) ? (m.yo >= 0 ? t('part.y') : t('part.x'))
+             : m.dt < 0 ? t('part.x') : t('part.data');
     h += '<div style="margin-top:5px;font-weight:650">'
        + (m.label || t('tip.unnamed')) + '</div>'
        + '<div class="r">' + t('tip.at', m.nx, m.ny, hx(m.off), part)
@@ -1081,8 +1276,15 @@ function openMap(m) {
   var body = $('d-body'), h = '';
 
   h += '<dl class="kv">';
-  h += '<dt>' + t('d.xaxis') + '</dt><dd>' + axisLine(m.xKind, v.X, v.nx) + '</dd>';
-  if (m.ny > 1) {
+  if (v.form !== 'grid') {
+    h += '<dt>' + t('d.form') + '</dt><dd>' + t('form.' + v.form)
+       + (m.ratio ? ' · ' + t('d.confblock', m.ratio) : '')
+       + (m.tag != null ? ' · tag <span class="mono">'
+            + m.tag.toString(16).toUpperCase().padStart(4, '0') + '</span>' : '') + '</dd>';
+  }
+  if (v.X) h += '<dt>' + t('d.xaxis') + '</dt><dd>' + axisLine(m.xKind, v.X, v.nx) + '</dd>';
+  else h += '<dt>' + t('d.xaxis') + '</dt><dd style="color:var(--ink-3)">' + t('d.noaxes') + '</dd>';
+  if (v.Y && m.ny > 1) {
     h += '<dt>' + t('d.yaxis') + '</dt><dd>' + axisLine(m.yKind, v.Y, v.ny) + '</dd>';
   }
   h += '<dt>' + t('d.values') + '</dt><dd>' + valueLine(m, r) + '</dd>';
@@ -1101,13 +1303,16 @@ function openMap(m) {
    * order: X across the columns, Y down the rows, and Y ascending *upward* so
    * the origin sits bottom-left and the surface rises like a plot. The X-major
    * storage layout stays an implementation detail inside v.at(). */
+  /* Headers fall back to indices where the file has no axis to show — an
+   * EDC15 bare block has neither. */
   h += '<div class="scroll"><table class="grid"><tr><th class="c r"></th>';
   for (var ix = 0; ix < v.nx; ix++) {
-    h += '<th class="c">' + (m.xKind ? scaleVal(v.X[ix], m.xKind) : v.X[ix]) + '</th>';
+    h += '<th class="c">' + (v.X ? (m.xKind ? scaleVal(v.X[ix], m.xKind) : v.X[ix]) : ix) + '</th>';
   }
   h += '</tr>';
   for (var iy = v.ny - 1; iy >= 0; iy--) {
-    h += '<tr><th class="r">' + (m.yKind ? scaleVal(v.Y[iy], m.yKind) : v.Y[iy]) + '</th>';
+    h += '<tr><th class="r">'
+       + (v.Y ? (m.yKind ? scaleVal(v.Y[iy], m.yKind) : v.Y[iy]) : (v.ny > 1 ? iy : '')) + '</th>';
     for (var cx = 0; cx < v.nx; cx++) {
       var val = v.at(cx, iy);
       var shade = m.max === m.min ? 0.5 : (val - m.min) / (m.max - m.min);
@@ -1226,7 +1431,7 @@ function showList() {
       + '<td>' + (m.label || '<span style="color:var(--ink-3)">' + t('list.unnamed') + '</span>')
       + (m.flat ? ' <span style="color:var(--ink-3)">' + t('constant') + '</span>' : '') + '</td>'
       + '<td>' + (m.xKind ? kindName(m.xKind) : '—') + '</td>'
-      + '<td>' + (m.ny > 1 ? (m.yKind ? kindName(m.yKind) : '—') : t('list.curve')) + '</td>'
+      + '<td>' + (m.form === 'block' ? '—' : m.ny > 1 ? (m.yKind ? kindName(m.yKind) : '—') : t('list.curve')) + '</td>'
       + '<td class="n">' + (r ? scaleVal(m.min, r) + '–' + scaleVal(m.max, r) + ' ' + unitOf(r.unit)
                               : m.min + '–' + m.max) + '</td>'
       + '<td class="n">' + (m.chainLen > 1 ? m.chainLen : '<span class="warn">1</span>') + '</td></tr>';
