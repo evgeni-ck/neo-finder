@@ -288,7 +288,8 @@ var STRINGS = {
     'd.unrecognised': 'unrecognised',
     'd.confidence': '{0} confidence',
     'd.valueshdr': 'Values ({0})',
-    'd.storage': 'Rows are X points, columns are Y points — the data is stored X-major, '
+    'd.storage': 'Columns are X points; rows are Y points, ascending upward from the '
+      + 'bottom row. The bytes themselves are stored X-major as '
       + '<span class="mono">value(ix,iy) = data[ix·ny + iy]</span>. Solid outline marks cells '
       + 'at the table maximum, dashed at the minimum.',
     'list.address': 'address', 'list.size': 'size', 'list.name': 'name',
@@ -367,7 +368,8 @@ var STRINGS = {
     'd.unrecognised': 'неразпозната',
     'd.confidence': '{0} увереност',
     'd.valueshdr': 'Стойности ({0})',
-    'd.storage': 'Редовете са точки по X, колоните — точки по Y. Данните се пазят X-мажорно: '
+    'd.storage': 'Колоните са точки по X; редовете са точки по Y и растат отдолу нагоре. '
+      + 'Самите байтове се пазят X-мажорно: '
       + '<span class="mono">value(ix,iy) = data[ix·ny + iy]</span>. Плътният контур маркира '
       + 'клетките с максимума на таблицата, прекъснатият — с минимума.',
     'list.address': 'адрес', 'list.size': 'размер', 'list.name': 'име',
@@ -1074,15 +1076,19 @@ function openMap(m) {
   h += '</dl>';
 
   h += '<h3>' + t('d.valueshdr', r ? unitOf(r.unit) : t('raw')) + '</h3>';
+  /* Presentation follows the convention every ECU editor uses, not the storage
+   * order: X across the columns, Y down the rows, and Y ascending *upward* so
+   * the origin sits bottom-left and the surface rises like a plot. The X-major
+   * storage layout stays an implementation detail inside v.at(). */
   h += '<div class="scroll"><table class="grid"><tr><th class="c r"></th>';
-  for (var iy = 0; iy < v.ny; iy++) {
-    h += '<th class="c">' + (m.yKind ? scaleVal(v.Y[iy], m.yKind) : v.Y[iy]) + '</th>';
+  for (var ix = 0; ix < v.nx; ix++) {
+    h += '<th class="c">' + (m.xKind ? scaleVal(v.X[ix], m.xKind) : v.X[ix]) + '</th>';
   }
   h += '</tr>';
-  for (var ix = 0; ix < v.nx; ix++) {
-    h += '<tr><th class="r">' + (m.xKind ? scaleVal(v.X[ix], m.xKind) : v.X[ix]) + '</th>';
-    for (iy = 0; iy < v.ny; iy++) {
-      var val = v.at(ix, iy);
+  for (var iy = v.ny - 1; iy >= 0; iy--) {
+    h += '<tr><th class="r">' + (m.yKind ? scaleVal(v.Y[iy], m.yKind) : v.Y[iy]) + '</th>';
+    for (var cx = 0; cx < v.nx; cx++) {
+      var val = v.at(cx, iy);
       var shade = m.max === m.min ? 0.5 : (val - m.min) / (m.max - m.min);
       var cls = val === m.max && !m.flat ? ' hi' : val === m.min && !m.flat ? ' lo' : '';
       var fg = shade > 0.55 ? '#fff' : '#0b0b0b';
