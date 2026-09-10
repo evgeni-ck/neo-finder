@@ -1037,6 +1037,35 @@ function onClick(e, st) {
  * ------------------------------------------------------------------ */
 var currentMap = null;
 
+/* An axis summary must never print raw counts next to a scaled unit — "coolant
+ * (°C) — 2531 … 3231" is nonsense. Where the scaling is the identity, show the
+ * values with their unit; otherwise show raw and the converted range, matching
+ * how the Values row already reads. */
+function axisLine(kind, arr, n) {
+  var lo = arr[0], hi = arr[n - 1];
+  if (!kind) return t('d.unrecognised') + ' — ' + t('raw') + ' ' + lo + ' … ' + hi;
+  var identity = (kind.factor == null || kind.factor === 1) && !kind.offset;
+  var name = kindName(kind), u = kind.unit ? unitOf(kind.unit) : '';
+  /* For speed the kind name and the unit are the same word; do not say it twice. */
+  var unit = (u && u.toLowerCase() !== name.toLowerCase()) ? ' ' + u : '';
+  if (identity) return name + ' — ' + lo + ' … ' + hi + unit;
+  return name + ' — ' + t('raw') + ' ' + lo + ' … ' + hi
+       + ' → ' + scaleVal(lo, kind) + ' … ' + scaleVal(hi, kind) + unit;
+}
+
+/* Same rule as axisLine: no identity conversion, and never the word 'raw'
+ * twice. A rule whose unit is literally 'raw' has nothing to convert to. */
+function valueLine(m, r) {
+  var range = m.min + '–' + m.max;
+  if (!r) return t('raw') + ' ' + range;
+  var identity = (r.factor == null || r.factor === 1) && !r.offset;
+  if (identity) {
+    return r.unit === 'raw' ? t('raw') + ' ' + range : range + ' ' + unitOf(r.unit);
+  }
+  return t('raw') + ' ' + range + ' → '
+       + scaleVal(m.min, r) + '–' + scaleVal(m.max, r) + ' ' + unitOf(r.unit);
+}
+
 function openMap(m) {
   currentMap = m;
   var v = viewOf(m), r = m.rule;
@@ -1052,19 +1081,11 @@ function openMap(m) {
   var body = $('d-body'), h = '';
 
   h += '<dl class="kv">';
-  h += '<dt>' + t('d.xaxis') + '</dt><dd>'
-     + (m.xKind ? kindName(m.xKind) + (m.xKind.unit ? ' (' + unitOf(m.xKind.unit) + ')' : '')
-                : t('d.unrecognised'))
-     + ' — ' + v.X[0] + ' … ' + v.X[v.nx - 1] + '</dd>';
+  h += '<dt>' + t('d.xaxis') + '</dt><dd>' + axisLine(m.xKind, v.X, v.nx) + '</dd>';
   if (m.ny > 1) {
-    h += '<dt>' + t('d.yaxis') + '</dt><dd>'
-       + (m.yKind ? kindName(m.yKind) + (m.yKind.unit ? ' (' + unitOf(m.yKind.unit) + ')' : '')
-                  : t('d.unrecognised'))
-       + ' — ' + v.Y[0] + ' … ' + v.Y[v.ny - 1] + '</dd>';
+    h += '<dt>' + t('d.yaxis') + '</dt><dd>' + axisLine(m.yKind, v.Y, v.ny) + '</dd>';
   }
-  h += '<dt>' + t('d.values') + '</dt><dd>' + t('raw') + ' ' + m.min + '–' + m.max
-     + (r ? ' → ' + scaleVal(m.min, r) + '–' + scaleVal(m.max, r) + ' ' + unitOf(r.unit) : '')
-     + '</dd>';
+  h += '<dt>' + t('d.values') + '</dt><dd>' + valueLine(m, r) + '</dd>';
   if (r) {
     h += '<dt>' + t('d.rule') + '</dt><dd>' + ruleLabel(r) + ' · <b>'
        + t('d.confidence', t('conf.' + r.confidence)) + '</b></dd>';
