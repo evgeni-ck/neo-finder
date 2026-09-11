@@ -775,11 +775,11 @@ var DEFAULT_RULES = {
       bg: { label: 'Крива с температурен изход',
             note: 'изходът е Келвин × 10, както при оста за охладителна течност' } },
 
-    { label: 'Quantity limiter', x: 'rpm', y: 'iq',
+    { label: 'Injection quantity ceiling', x: 'rpm', y: 'iq',
       dataMax: [2500, 5000], trendX: 'down', unit: 'mg/stroke', factor: 0.01,
-      confidence: 'low', note: 'upper bound on quantity; often the smoke limiter',
-      bg: { label: 'Ограничител на количеството',
-            note: 'горна граница на количеството; често ограничителят на дима' } }
+      confidence: 'low', note: 'upper bound on quantity indexed by quantity itself; the real smoke limiter is indexed by air mass',
+      bg: { label: 'Таван на количеството впръскване',
+            note: 'горна граница на количеството; истинският ограничител на дима е индексиран по въздушна маса' } }
   ]
 };
 
