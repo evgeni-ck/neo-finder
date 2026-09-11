@@ -95,8 +95,8 @@ this specific, the app scans the **whole file** and needs no prior knowledge of
 the layout. Scanning all four container variants over 2 MiB takes about 80 ms.
 
 The single spurious hit in the boot region is an isolated chain of length one.
-Chain length is shown per table, and a length of 1 is flagged, so that class of
-false positive is visible rather than silent.
+Chain length feeds the confidence score described below, so that class of false
+positive is visible rather than silent.
 
 X-major storage order (rather than row-major) was confirmed on every non-square
 map by second-difference smoothness — the transpose visibly shears the rows.
@@ -147,10 +147,13 @@ rather than logic. Recognition is universal; naming is per-ECU-family.
 
 | Fingerprint | Reading |
 |---|---|
-| round steps ending 2800–8000, starting under 1300 | engine speed, raw = rpm |
+| round steps ending 1500–8000, starting under 1600 | engine speed, raw = rpm |
 | ends at `8192`, contains `819`, `1638`, `4096` | pedal, `8192 = 100 %` |
 | starts under 700, ends 2500–12000 | injection quantity, raw/100 = mg/stroke |
-|  starts 2200–2750, ends 2850–4000 | coolant temperature, raw/10 − 273.1 = °C |
+| starts 2200–2750, ends 2850–4000 | coolant temperature, raw/10 − 273.1 = °C |
+| starts under 5000, ends 6000–40000 | air mass, raw/10 = mg/stroke |
+| 500–980 rising to 990–1300 | ambient pressure, mbar |
+| 4–12 points, none above 16 | gear or mode index |
 
 Each kind carries a **role** of `x`, `y` or `any`, and this turned out to matter
 more than the value ranges. An injection-quantity axis of 400…5000 is
@@ -159,6 +162,14 @@ speed fingerprint swallows load axes and every boost map comes out unnamed. In
 this container the X axis is the speed axis and the Y axis is the load axis;
 pedal and coolant have fingerprints distinctive enough to match in either
 position.
+
+**Signedness is decided per record.** Correction and offset maps are
+two's-complement; read unsigned they come out as `0…64717` nonsense that no
+rule can match and that also displays wrong. A record counts as signed when
+its values straddle `0x8000` *and* the signed reading is a far more compact
+range than the unsigned one — a genuine unsigned map never benefits, because
+none of its values exceed `0x7FFF`. On the reference EDC16 file that is 41
+records: `0x1B9512` is really −819…0, `0x1B3F42` is −100…0.
 
 **Map rules** then match on those axis kinds plus value range and **trend** — the
 mean of the top third of an axis against the bottom third. Trend is what
@@ -228,6 +239,18 @@ agreement in Bulgarian.
 
 To add a language: copy the `en` block, translate it, add a matching `bg`-style
 block to each rule, and extend `UNITS`. Nothing else needs touching.
+
+## Confidence
+
+The structural predicate says a record is *well-formed*, not that it is real.
+Every record carries a score built from four pieces of evidence: contiguity
+with its neighbours, plausible dimensions, whether a naming rule claimed it,
+and whether the values vary gradually the way calibration does and program
+code does not.
+
+It is reported, never used to silently drop anything. As a sanity check, the
+worst record in the reference EDC16 file — a 39×62 block sitting outside the
+calibration area — scores **0.21** against a median of 0.62.
 
 ## Known limits
 

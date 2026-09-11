@@ -22,6 +22,35 @@ function ScannerLib() {
   var MIN_NX = 3, MAX_NX = 64, MIN_NY = 1, MAX_NY = 64;
   var MIN_CHAIN_BYTES = 200;   // a chain must cover this much to be considered
 
+  /* Value stats, and the signedness decision.
+   *
+   * Correction and offset maps are two's-complement, so read unsigned they come
+   * out as 0…64717 nonsense that no rule can match and that displays wrong.
+   * Deciding per map: if the values straddle 0x8000 and the signed reading is a
+   * far more compact range than the unsigned one, the data is signed. A genuine
+   * unsigned map never benefits, because none of its values exceed 0x7FFF. */
+  function stats(bytes, m, wordData, le, w) {
+    var rd = le ? function (o) { return bytes[o] | (bytes[o + 1] << 8); }
+                : function (o) { return (bytes[o] << 8) | bytes[o + 1]; };
+    var src = m.dt >= 0 ? m.dt : m.xo;
+    var cnt = m.dt >= 0 ? m.nx * m.ny : m.nx;
+    var lo = Infinity, hi = -Infinity, slo = Infinity, shi = -Infinity, i, v, s;
+    for (i = 0; i < cnt; i++) {
+      v = (wordData && w === 2) || m.dt < 0 ? rd(src + i * 2) : bytes[src + i];
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+      s = v > 32767 ? v - 65536 : v;
+      if (s < slo) slo = s;
+      if (s > shi) shi = s;
+    }
+    var straddles = hi > 32767 && lo < 32768;
+    var signed = straddles && (shi - slo) * 2 < (hi - lo);
+    m.signed = signed;
+    m.min = signed ? slo : lo;
+    m.max = signed ? shi : hi;
+    m.flat = (m.min === m.max);
+  }
+
   function scan(bytes, le, w, onProgress) {
     var n = bytes.length;
     var rd16 = le
@@ -89,15 +118,9 @@ function ScannerLib() {
     // value stats per map, needed for naming and for the flat/unused test
     var covered = 0;
     for (i = 0; i < maps.length; i++) {
-      var mm = maps[i], cnt = mm.nx * mm.ny, lo = Infinity, hi = -Infinity;
-      for (j = 0; j < cnt; j++) {
-        var v = w === 2 ? rd16(mm.dt + j * 2) : bytes[mm.dt + j];
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-      mm.min = lo; mm.max = hi; mm.flat = (lo === hi);
-      mm.chainLen = 0;
-      covered += mm.len;
+      stats(bytes, maps[i], w === 2, le, w);
+      maps[i].chainLen = 0;
+      covered += maps[i].len;
     }
     for (i = 0; i < kept.length; i++) {
       for (j = 0; j < kept[i].ch.length; j++) kept[i].ch[j].chainLen = kept[i].ch.length;
@@ -150,15 +173,8 @@ function ScannerLib() {
     } else if (!best.family) best.family = 'edc16';
 
     // value stats for whichever family won (the EDC16 path already has them)
-    var rd16 = best.le ? function (o) { return bytes[o] | (bytes[o + 1] << 8); }
-                       : function (o) { return (bytes[o] << 8) | bytes[o + 1]; };
     for (i = 0; i < best.maps.length; i++) {
-      var m = best.maps[i];
-      if (m.min != null) continue;
-      var src = m.dt >= 0 ? m.dt : m.xo, cnt = m.dt >= 0 ? m.nx * m.ny : m.nx;
-      var lo = Infinity, hi = -Infinity;
-      for (var q = 0; q < cnt; q++) { var v2 = rd16(src + q * 2); if (v2 < lo) lo = v2; if (v2 > hi) hi = v2; }
-      m.min = lo; m.max = hi; m.flat = (lo === hi);
+      if (best.maps[i].min == null) stats(bytes, best.maps[i], true, best.le, 2);
     }
 
     return {
@@ -220,6 +236,15 @@ function ScannerLib() {
         k += len / 2;
       } else k++;
     }
+    /* Real run lengths. A hardcoded 1 made the isolated-hit warning, which
+     * means "possible false positive", fire on every single record. */
+    var r0 = 0;
+    while (r0 < maps.length) {
+      var r1 = r0 + 1;
+      while (r1 < maps.length && maps[r1].off === maps[r1 - 1].off + maps[r1 - 1].len) r1++;
+      for (var r2 = r0; r2 < r1; r2++) maps[r2].chainLen = r1 - r0;
+      r0 = r1;
+    }
     return { maps: maps, covered: best[0] };
   }
 
@@ -264,7 +289,7 @@ function ScannerLib() {
       var ny = Math.floor((end - run.o) / (2 * run.w));
       if (ny < 4) return;
       out.push({ off: run.o, nx: run.w, ny: ny, len: run.w * ny * 2,
-                 xo: -1, yo: -1, dt: run.o, form: 'block', chainLen: 1,
+                 xo: -1, yo: -1, dt: run.o, form: 'block', chainLen: 0,
                  ratio: Math.round(run.r * 10) / 10 });
     }
     for (var g = 0; g < gaps.length; g++) {
@@ -381,7 +406,7 @@ function ScannerLib() {
     };
   }
 
-  return { VARIANTS: VARIANTS, scan: scan, autoDetect: autoDetect, identify: identify };
+  return { VARIANTS: VARIANTS, scan: scan, autoDetect: autoDetect, identify: identify, stats: stats };
 }
 
 var Scanner = ScannerLib();
@@ -426,6 +451,7 @@ var STRINGS = {
     'raw': 'raw',
     'unnamedtable': 'Unnamed table',
     'd.axes': 'axes at {0} / {1}',
+    'd.axis1': 'axis at {0}',
     'd.data': 'data at {0}',
     'd.bytes': '{0} bytes',
     'd.chain': 'in a chain of {0}',
@@ -444,7 +470,7 @@ var STRINGS = {
       + '<span class="mono">value(ix,iy) = data[ix·ny + iy]</span>. Solid outline marks cells '
       + 'at the table maximum, dashed at the minimum.',
     'list.address': 'address', 'list.size': 'size', 'list.name': 'name',
-    'list.x': 'X axis', 'list.y': 'Y axis', 'list.values': 'values', 'list.chain': 'chain',
+    'list.x': 'X axis', 'list.y': 'Y axis', 'list.values': 'values', 'list.chain': 'chain', 'list.conf': 'confidence',
     'list.curve': 'curve', 'list.unnamed': 'unnamed',
     'list.sub': '{0} {1} · named: {2} · click a row to open',
     'list.export': 'Export CSV',
@@ -468,6 +494,8 @@ var STRINGS = {
     'id.other': 'Other identifier-like strings',
     'id.foot': 'Read from {0} printable strings in the file. Everything here was computed in your browser — nothing was uploaded.',
     'kind.gear': 'gear',
+    'kind.airmass': 'air mass',
+    'kind.ambient': 'ambient pressure',
     'form.block': '3D map block (axes not paired)',
     'labels.more': '+{0} more not labelled',
     'form.axis': 'axis record',
@@ -517,6 +545,7 @@ var STRINGS = {
     'raw': 'сурови',
     'unnamedtable': 'Неназована таблица',
     'd.axes': 'оси на {0} / {1}',
+    'd.axis1': 'ос на {0}',
     'd.data': 'данни на {0}',
     'd.bytes': '{0} байта',
     'd.chain': 'във верига от {0}',
@@ -535,7 +564,7 @@ var STRINGS = {
       + '<span class="mono">value(ix,iy) = data[ix·ny + iy]</span>. Плътният контур маркира '
       + 'клетките с максимума на таблицата, прекъснатият — с минимума.',
     'list.address': 'адрес', 'list.size': 'размер', 'list.name': 'име',
-    'list.x': 'ос X', 'list.y': 'ос Y', 'list.values': 'стойности', 'list.chain': 'верига',
+    'list.x': 'ос X', 'list.y': 'ос Y', 'list.values': 'стойности', 'list.chain': 'верига', 'list.conf': 'увереност',
     'list.curve': 'крива', 'list.unnamed': 'неназована',
     'list.sub': '{0} {1} · наименувани: {2} · щракнете на ред, за да го отворите',
     'list.export': 'Експорт CSV',
@@ -559,6 +588,8 @@ var STRINGS = {
     'id.other': 'Други низове, подобни на идентификатори',
     'id.foot': 'Прочетено от {0} печатаеми низа във файла. Всичко тук е изчислено в браузъра ви — нищо не е качено.',
     'kind.gear': 'предавка',
+    'kind.airmass': 'масов въздушен поток',
+    'kind.ambient': 'атмосферно налягане',
     'form.block': '3D блок (осите не са свързани)',
     'labels.more': '+още {0} без етикет',
     'form.axis': 'запис на ос',
@@ -621,9 +652,13 @@ var DEFAULT_RULES = {
     { kind: 'coolant', role: 'any', unit: '°C', factor: 0.1, offset: -273.1,
       test: { minPoints: 4, firstMin: 2200, firstMax: 2750, lastMin: 2850, lastMax: 4000 } },
     { kind: 'rpm', role: 'x', unit: 'rpm', factor: 1,
-      test: { minPoints: 6, firstMax: 1300, lastMin: 2800, lastMax: 8000 } },
+      test: { minPoints: 6, firstMax: 1600, lastMin: 1500, lastMax: 8000 } },
     { kind: 'iq', role: 'y', unit: 'mg/stroke', factor: 0.01,
       test: { minPoints: 6, firstMax: 700, lastMin: 2500, lastMax: 12000 } },
+    { kind: 'airmass', role: 'any', unit: 'mg/stroke', factor: 0.1,
+      test: { minPoints: 6, firstMax: 5000, lastMin: 6000, lastMax: 40000 } },
+    { kind: 'ambient', role: 'any', unit: 'mbar', factor: 1,
+      test: { minPoints: 5, firstMin: 500, firstMax: 980, lastMin: 990, lastMax: 1300 } },
     { kind: 'gear', role: 'any', unit: '', factor: 1,
       test: { minPoints: 4, firstMax: 3, lastMax: 16 } },
     { kind: 'index', role: 'any', unit: '', factor: 1, test: { lastMax: 64 } }
@@ -668,7 +703,7 @@ var DEFAULT_RULES = {
             note: 'резкият праг вместо плавен преход подсказва изключване след определено натоварване; може да е и клапа' } },
 
     { label: 'Duty / position', x: 'rpm', y: 'iq',
-      dataMax: [5000, 8300], unit: '%', factor: 0.01220703125, confidence: 'medium',
+      dataMax: [7800, 8300], unit: '%', factor: 0.01220703125, confidence: 'medium',
       note: '8192 = 100 %, so this is a normalised actuator demand',
       bg: { label: 'Запълване / позиция',
             note: '8192 = 100 %, т.е. нормализирана заявка към изпълнителен механизъм' } },
@@ -678,6 +713,19 @@ var DEFAULT_RULES = {
       note: 'coolant-indexed trim, typically cold-running enrichment or timing',
       bg: { label: 'Температурна корекция',
             note: 'корекция по температура на охладителната течност, обикновено обогатяване или момент при студен двигател' } },
+
+    { label: 'Normalised output curve', x: 'any', dim: 'curve',
+      dataMax: [7900, 8300], unit: '%', factor: 0.01220703125, confidence: 'low',
+      note: 'output saturates at 8192 = 100 %, so this is a normalised demand',
+      bg: { label: 'Крива с нормализиран изход',
+            note: 'изходът се насища при 8192 = 100 %, т.е. нормализирана заявка' } },
+
+    { label: 'Temperature output curve', x: 'any', dim: 'curve',
+      dataMin: [2200, 2800], dataMax: [2900, 4000],
+      unit: '°C', factor: 0.1, offset: -273.1, confidence: 'low',
+      note: 'output is Kelvin × 10, the same encoding as a coolant axis',
+      bg: { label: 'Крива с температурен изход',
+            note: 'изходът е Келвин × 10, както при оста за охладителна течност' } },
 
     { label: 'Quantity limiter', x: 'rpm', y: 'iq',
       dataMax: [2500, 5000], trendX: 'down', unit: 'mg/stroke', factor: 0.01,
@@ -820,7 +868,12 @@ var RuleEngine = (function () {
     var tx = null, ty = null;
     for (var i = 0; i < rules.maps.length; i++) {
       var r = rules.maps[i];
-      if (r.x && (!xk || xk.kind !== r.x)) continue;
+      /* `dim` lets the pack express 1-D rules, which EDC15 needs: its records are
+       * curves, so every rule requiring a Y axis silently never fired. */
+      if (r.dim === 'curve' && !(view.ny === 1 && view.form !== 'axis')) continue;
+      if (r.dim === 'map' && view.ny === 1) continue;
+      if (r.x === 'any') { if (!xk) continue; }
+      else if (r.x && (!xk || xk.kind !== r.x)) continue;
       if (r.y && (!yk || yk.kind !== r.y)) continue;
       if (r.dataMin && (view.min < r.dataMin[0] || view.min > r.dataMin[1])) continue;
       if (r.dataMax && (view.max < r.dataMax[0] || view.max > r.dataMax[1])) continue;
@@ -886,15 +939,17 @@ function viewOf(m) {
   var rd16 = le ? function (o) { return b[o] | (b[o + 1] << 8); }
                 : function (o) { return (b[o] << 8) | b[o + 1]; };
   function ax(o, n) { var a = []; for (var i = 0; i < n; i++) a.push(rd16(o + i * 2)); return a; }
+  var sg = m.signed ? function (v) { return v > 32767 ? v - 65536 : v; }
+                    : function (v) { return v; };
   var form = m.form || 'grid', at;
-  if (form === 'axis') at = function (ix) { return rd16(m.xo + ix * 2); };
-  else if (form === 'curve') at = function (ix) { return rd16(m.dt + ix * 2); };
-  else if (form === 'block') at = function (ix, iy) { return rd16(m.dt + (iy * m.nx + ix) * 2); };
+  if (form === 'axis') at = function (ix) { return sg(rd16(m.xo + ix * 2)); };
+  else if (form === 'curve') at = function (ix) { return sg(rd16(m.dt + ix * 2)); };
+  else if (form === 'block') at = function (ix, iy) { return sg(rd16(m.dt + (iy * m.nx + ix) * 2)); };
   else at = function (ix, iy) {
     var i = ix * m.ny + iy;
-    return w === 2 ? rd16(m.dt + i * 2) : b[m.dt + i];
+    return sg(w === 2 ? rd16(m.dt + i * 2) : b[m.dt + i]);
   };
-  return { m: m, form: form, nx: m.nx, ny: m.ny, min: m.min, max: m.max,
+  return { m: m, form: form, nx: m.nx, ny: m.ny, min: m.min, max: m.max, signed: !!m.signed,
            X: m.xo >= 0 ? ax(m.xo, m.nx) : null,
            Y: m.yo >= 0 ? ax(m.yo, m.ny) : null, at: at };
 }
@@ -902,6 +957,47 @@ function viewOf(m) {
 /* ------------------------------------------------------------------ *
  * 4. Classify + group into named regions
  * ------------------------------------------------------------------ */
+/* How much should you trust this record?
+ *
+ * The structural predicate says a record is *well-formed*, not that it is real.
+ * Chain length was the only signal, and as a bare flag it could not separate
+ * "isolated but obviously a map" from "isolated, 39x62, and sitting in the
+ * middle of program code". This scores the evidence instead: contiguity,
+ * plausible dimensions, whether a rule claimed it, and whether the values vary
+ * gradually the way calibration does and code does not. */
+function smoothness(v) {
+  var span = v.max - v.min;
+  if (!span) return 0;
+  var sum = 0, n = 0, ix, iy;
+  for (iy = 0; iy < v.ny; iy++) {
+    for (ix = 1; ix < v.nx - 1; ix++) {
+      sum += Math.abs(v.at(ix - 1, iy) - 2 * v.at(ix, iy) + v.at(ix + 1, iy));
+      n++;
+    }
+  }
+  if (!n) return 0.5;
+  var rough = (sum / n) / span;                    // 0 = perfectly smooth
+  return Math.max(0, Math.min(1, 1 - rough * 1.5));
+}
+
+function scoreOf(m, v) {
+  var s = 0;
+  s += m.chainLen >= 3 ? 0.30 : m.chainLen === 2 ? 0.18
+     : m.chainLen === 0 ? 0.12                     // a bare block cannot chain
+     : 0.06;
+  var okDim = m.nx >= 4 && m.nx <= 32 && (m.ny === 1 || (m.ny >= 4 && m.ny <= 32));
+  s += okDim ? 0.20 : (m.nx <= 40 && m.ny <= 40 ? 0.10 : 0);
+  s += m.rule ? 0.25 : (m.xKind ? 0.12 : 0);
+  s += 0.25 * smoothness(v);
+  return Math.round(Math.min(0.99, s) * 100) / 100;
+}
+
+function scoreChip(v) {
+  if (v == null) return '';
+  var cls = v >= 0.6 ? 'ok' : v >= 0.4 ? '' : 'warn';
+  return '<span class="' + cls + '">' + v.toFixed(2) + '</span>';
+}
+
 function classifyAll() {
   S.maps = S.result.maps;
   for (var i = 0; i < S.maps.length; i++) {
@@ -917,6 +1013,7 @@ function classifyAll() {
       else if (m.form === 'axis') m.label = m.xKind ? t('form.axisof', kindName(m.xKind)) : t('form.axis');
       else if (m.form === 'curve' && m.xKind) m.label = t('form.curveof', kindName(m.xKind));
     }
+    m.score = scoreOf(m, v);
   }
   // group consecutive maps sharing a label (or both unnamed with equal shape)
   S.groups = [];
@@ -1295,12 +1392,17 @@ function openMap(m) {
   currentMap = m;
   var v = viewOf(m), r = m.rule;
   $('d-title').textContent = (m.label || t('unnamedtable')) + '  ·  ' + hx(m.off);
+  var where = [];
+  if (m.xo >= 0 && m.yo >= 0) where.push(t('d.axes', hx(m.xo), hx(m.yo)));
+  else if (m.xo >= 0) where.push(t('d.axis1', hx(m.xo)));
+  if (m.dt >= 0) where.push(t('d.data', hx(m.dt)));
   $('d-sub').innerHTML = m.nx + '×' + m.ny
-    + ' · ' + t('d.axes', hx(m.xo), hx(m.yo))
-    + ' · ' + t('d.data', hx(m.dt))
+    + (where.length ? ' · ' + where.join(' · ') : '')
     + ' · ' + t('d.bytes', m.len)
+    + ' · ' + scoreChip(m.score)
     + (m.chainLen > 1 ? ' · ' + t('d.chain', m.chainLen)
-                      : ' · <span class="warn">' + t('d.isolated') + '</span>')
+       : m.chainLen === 0 ? ''
+       : ' · <span class="warn">' + t('d.isolated') + '</span>')
     + (m.flat ? ' · ' + t('constant') : '');
 
   var body = $('d-body'), h = '';
@@ -1452,7 +1554,7 @@ function showList() {
   var html = '<div class="tablewrap"><table class="rep"><tr><th>' + t('list.address')
     + '</th><th>' + t('list.size') + '</th><th>' + t('list.name') + '</th><th>' + t('list.x')
     + '</th><th>' + t('list.y') + '</th><th>' + t('list.values') + '</th><th>'
-    + t('list.chain') + '</th></tr>';
+    + t('list.conf') + '</th></tr>';
   S.maps.forEach(function (m, i) {
     var r = m.rule;
     html += '<tr style="cursor:pointer" data-i="' + i + '">'
@@ -1464,18 +1566,18 @@ function showList() {
       + '<td>' + (m.form === 'block' ? '—' : m.ny > 1 ? (m.yKind ? kindName(m.yKind) : '—') : t('list.curve')) + '</td>'
       + '<td class="n">' + (r ? scaleVal(m.min, r) + '–' + scaleVal(m.max, r) + ' ' + unitOf(r.unit)
                               : m.min + '–' + m.max) + '</td>'
-      + '<td class="n">' + (m.chainLen > 1 ? m.chainLen : '<span class="warn">1</span>') + '</td></tr>';
+      + '<td class="n">' + scoreChip(m.score) + '</td></tr>';
   });
   html += '</table></div>';
   openModal(t('maplist'), t('list.sub', S.maps.length, tableWord(S.maps.length), named),
     html, [{ label: t('list.export'), fn: function () {
       var rows = ['address,nx,ny,name,x_kind,y_kind,raw_min,raw_max,constant,chain_len,'
-        + 'x_axis_addr,y_axis_addr,data_addr,bytes'];
+        + 'x_axis_addr,y_axis_addr,data_addr,bytes,signed,confidence'];
       S.maps.forEach(function (m) {
         rows.push([hx(m.off), m.nx, m.ny, '"' + (m.label || '') + '"',
           m.xKind ? m.xKind.kind : '', m.yKind ? m.yKind.kind : '',
           m.min, m.max, m.flat ? 'yes' : 'no', m.chainLen,
-          hx(m.xo), hx(m.yo), hx(m.dt), m.len].join(','));
+          hx(m.xo), hx(m.yo), hx(m.dt), m.len, m.signed ? 'yes' : 'no', m.score].join(','));
       });
       download('neo-finder-maps.csv', rows.join('\n'), 'text/csv');
     } }]);
