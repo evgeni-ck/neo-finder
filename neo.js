@@ -49,6 +49,17 @@ function ScannerLib() {
     m.min = signed ? slo : lo;
     m.max = signed ? shi : hi;
     m.flat = (m.min === m.max);
+    /* A map that is constant except for one or two cells is an unused option
+     * just as much as a perfectly flat one, but min === max never saw it. */
+    if (!m.flat && cnt >= 16) {
+      var counts = {}, best = 0, kk;
+      for (i = 0; i < cnt; i++) {
+        v = (wordData && w === 2) || m.dt < 0 ? rd(src + i * 2) : bytes[src + i];
+        kk = counts[v] = (counts[v] || 0) + 1;
+        if (kk > best) best = kk;
+      }
+      m.nearFlat = best / cnt >= 0.95;
+    }
   }
 
   function scan(bytes, le, w, onProgress) {
@@ -495,6 +506,13 @@ var STRINGS = {
     'id.foot': 'Read from {0} printable strings in the file. Everything here was computed in your browser — nothing was uploaded.',
     'kind.gear': 'gear',
     'kind.airmass': 'air mass',
+    'kind.torque': 'torque',
+    'nearconstant': 'near-constant',
+    'tuned': 'tuned file',
+    'tuned.title': 'Widen the expected value ranges, so a modified file still matches its rules',
+    'list.find': 'Filter by name, address or axis…',
+    'd.inferred': '(from sibling records sharing this tag)',
+    'd.alsofits': 'also consistent with: {0}',
     'kind.ambient': 'ambient pressure',
     'form.block': '3D map block (axes not paired)',
     'labels.more': '+{0} more not labelled',
@@ -589,6 +607,13 @@ var STRINGS = {
     'id.foot': 'Прочетено от {0} печатаеми низа във файла. Всичко тук е изчислено в браузъра ви — нищо не е качено.',
     'kind.gear': 'предавка',
     'kind.airmass': 'масов въздушен поток',
+    'kind.torque': 'въртящ момент',
+    'nearconstant': 'почти постоянна',
+    'tuned': 'тунингован файл',
+    'tuned.title': 'Разширява очакваните обхвати, за да пасне и модифициран файл',
+    'list.find': 'Филтър по име, адрес или ос…',
+    'd.inferred': '(от сродни записи със същия таг)',
+    'd.alsofits': 'съвместимо също с: {0}',
     'kind.ambient': 'атмосферно налягане',
     'form.block': '3D блок (осите не са свързани)',
     'labels.more': '+още {0} без етикет',
@@ -633,6 +658,22 @@ function unitOf(u) {
 function tableWord(n) { return t(n === 1 ? 'table.one' : 'table.many'); }
 
 function kindName(k) { return k ? t('kind.' + k.kind) : t('d.unrecognised'); }
+function kindNameOf(name) { return t('kind.' + name); }
+
+/* Some axes legitimately fit more than one fingerprint — an injection-quantity
+ * axis of 0…3750 in even steps is indistinguishable from a torque axis without
+ * a definition file. Rather than pick one and be silently wrong, collect the
+ * alternatives and show them. */
+function altKinds(axis, rules, chosen) {
+  var out = [];
+  if (!axis) return out;
+  for (var i = 0; i < rules.axisKinds.length; i++) {
+    var k = rules.axisKinds[i];
+    if (chosen && k.kind === chosen.kind) continue;
+    if (RuleEngine.fits(axis, k)) out.push(k.kind);
+  }
+  return out;
+}
 
 function ruleLabel(r) { return r ? ((LANG !== 'en' && r[LANG] && r[LANG].label) || r.label) : null; }
 function ruleNote(r) { return r ? ((LANG !== 'en' && r[LANG] && r[LANG].note) || r.note) : null; }
@@ -661,6 +702,13 @@ var DEFAULT_RULES = {
       test: { minPoints: 5, firstMin: 500, firstMax: 980, lastMin: 990, lastMax: 1300 } },
     { kind: 'gear', role: 'any', unit: '', factor: 1,
       test: { minPoints: 4, firstMax: 3, lastMax: 16 } },
+    /* Advisory only. A torque axis and an injection-quantity axis are not
+     * separable on the files to hand: of 323 iq axes, 14 sit inside the torque
+     * window and 123 of the other 309 are just as evenly spaced. Rather than
+     * pick one and be silently wrong, this is reported as an alternative
+     * reading and never assigned. */
+    { kind: 'torque', role: 'any', unit: 'Nm', factor: 0.1, advisory: true,
+      test: { minPoints: 14, firstMax: 150, lastMin: 2000, lastMax: 5000 } },
     { kind: 'index', role: 'any', unit: '', factor: 1, test: { lastMax: 64 } }
   ],
   /* First match wins, so order is the disambiguation mechanism. trendX/trendY
@@ -826,6 +874,7 @@ var RuleEngine = (function () {
     var first = axis[0], last = axis[axis.length - 1];
     for (var i = 0; i < rules.axisKinds.length; i++) {
       var k = rules.axisKinds[i], t = k.test || {};
+      if (k.advisory) continue;                 // advisory kinds never win
       if (role && role !== 'any' && k.role && k.role !== 'any' && k.role !== role) continue;
       if (t.minPoints != null && axis.length < t.minPoints) continue;
       if (t.firstMin != null && first < t.firstMin) continue;
@@ -860,7 +909,7 @@ var RuleEngine = (function () {
 
   function want(dir) { return dir === 'up' ? 1 : dir === 'down' ? -1 : 0; }
 
-  function classify(view, rules) {
+  function classify(view, rules, tuned) {
     if (!view.X) return { xKind: null, yKind: null, rule: null };   // bare block
     var xk = kindOf(view.X, rules, view.form === 'grid' ? 'x' : 'any');
     var yk = view.Y && view.ny > 1 ? kindOf(view.Y, rules, 'y') : null;
@@ -875,8 +924,11 @@ var RuleEngine = (function () {
       if (r.x === 'any') { if (!xk) continue; }
       else if (r.x && (!xk || xk.kind !== r.x)) continue;
       if (r.y && (!yk || yk.kind !== r.y)) continue;
-      if (r.dataMin && (view.min < r.dataMin[0] || view.min > r.dataMin[1])) continue;
-      if (r.dataMax && (view.max < r.dataMax[0] || view.max > r.dataMax[1])) continue;
+      /* A modified file legitimately exceeds stock ranges, so every range
+       * check is mis-calibrated for one unless it is widened. */
+      var lo = tuned ? 0.7 : 1, hi = tuned ? 1.3 : 1;
+      if (r.dataMin && (view.min < r.dataMin[0] * lo || view.min > r.dataMin[1] * hi)) continue;
+      if (r.dataMax && (view.max < r.dataMax[0] * lo || view.max > r.dataMax[1] * hi)) continue;
       if (r.trendX) {
         if (tx === null) tx = trend(function (a, b) { return view.at(a, b); }, view.nx, view.ny);
         if (tx !== want(r.trendX)) continue;
@@ -891,7 +943,23 @@ var RuleEngine = (function () {
     return res;
   }
 
-  return { classify: classify, kindOf: kindOf };
+  function fits(axis, k) {
+    if (!axis.length) return false;
+    var t = k.test || {}, first = axis[0], last = axis[axis.length - 1], j;
+    if (t.minPoints != null && axis.length < t.minPoints) return false;
+    if (t.firstMin != null && first < t.firstMin) return false;
+    if (t.firstMax != null && first > t.firstMax) return false;
+    if (t.lastMin != null && last < t.lastMin) return false;
+    if (t.lastMax != null && last > t.lastMax) return false;
+    if (t.nearAll) {
+      for (j = 0; j < t.nearAll.length; j++) {
+        if (!nearAny(axis, t.nearAll[j], Math.max(4, t.nearAll[j] * 0.03))) return false;
+      }
+    }
+    return true;
+  }
+
+  return { classify: classify, kindOf: kindOf, fits: fits };
 })();
 
 /* ------------------------------------------------------------------ *
@@ -925,7 +993,7 @@ function scaleVal(v, r) {
 var S = {
   name: '', bytes: null,
   result: null, summary: null, rules: DEFAULT_RULES, maps: [], groups: [],
-  strips: [], zoom: 4, ident: null, sha: null
+  strips: [], zoom: 4, ident: null, sha: null, tuned: false
 };
 
 /* A compact accessor over one record. Four forms now:
@@ -1002,7 +1070,7 @@ function classifyAll() {
   S.maps = S.result.maps;
   for (var i = 0; i < S.maps.length; i++) {
     var m = S.maps[i], v = viewOf(m);
-    var c = RuleEngine.classify(v, S.rules);
+    var c = RuleEngine.classify(v, S.rules, S.tuned);
     m.rule = c.rule; m.xKind = c.xKind; m.yKind = c.yKind;
     m.label = ruleLabel(c.rule);          // display label in the current language
     /* EDC15 records get their name from the axis, not from a map rule: the tag
@@ -1015,6 +1083,42 @@ function classifyAll() {
     }
     m.score = scoreOf(m, v);
   }
+  /* The EDC15 tag names the input variable, so every curve carrying a tag
+   * shares one axis. That is far more evidence than any single axis gives:
+   * where most members of a tag resolve to the same kind, the ones whose own
+   * values were ambiguous can inherit it. Marked inferred, so the drawer can
+   * say the classification came from siblings rather than from the values. */
+  var byTag = {};
+  for (i = 0; i < S.maps.length; i++) {
+    var tm = S.maps[i];
+    if (tm.tag == null) continue;
+    (byTag[tm.tag] = byTag[tm.tag] || []).push(tm);
+  }
+  Object.keys(byTag).forEach(function (tg) {
+    var members = byTag[tg];
+    if (members.length < 2) return;
+    var votes = {}, top = null;
+    members.forEach(function (mm) {
+      if (!mm.xKind) return;
+      votes[mm.xKind.kind] = (votes[mm.xKind.kind] || 0) + 1;
+    });
+    Object.keys(votes).forEach(function (k) { if (!top || votes[k] > votes[top]) top = k; });
+    if (!top) return;
+    var resolved = Object.keys(votes).reduce(function (a, k) { return a + votes[k]; }, 0);
+    if (votes[top] / resolved < 0.6) return;          // no clear consensus
+    var kindObj = null;
+    for (i = 0; i < members.length; i++) {
+      if (members[i].xKind && members[i].xKind.kind === top) { kindObj = members[i].xKind; break; }
+    }
+    members.forEach(function (mm) {
+      if (mm.xKind || !kindObj) return;
+      mm.xKind = kindObj;
+      mm.xKindInferred = true;
+      if (!mm.label && mm.form === 'curve') mm.label = t('form.curveof', kindName(kindObj));
+      else if (!mm.label && mm.form === 'axis') mm.label = t('form.axisof', kindName(kindObj));
+    });
+  });
+
   // group consecutive maps sharing a label (or both unnamed with equal shape)
   S.groups = [];
   var g = null;
@@ -1119,8 +1223,29 @@ function planStrips(cssW, G) {
      * lane to fit them all pushed the text ~1600 px above the band it points
      * at — drawn, but useless. So label the widest bands first, cap the stack,
      * and report how many were left out. */
-    var cand = [];
+    /* Several groups in a row can carry the same name - eleven temperature
+     * corrections, say - and each was taking its own label slot. Merge them
+     * into a single callout spanning the lot. */
+    var merged = [], byLabel = {};
     here.forEach(function (g) {
+      if (!g.label) { merged.push(g); return; }
+      var prev = byLabel[g.label];
+      if (prev) {
+        prev.start = Math.min(prev.start, g.start);
+        prev.end = Math.max(prev.end, g.end);
+        prev.count += g.count;
+        prev.min = Math.min(prev.min, g.min);
+        prev.max = Math.max(prev.max, g.max);
+      } else {
+        byLabel[g.label] = { key: g.key, label: g.label, rule: g.rule, start: g.start,
+                             end: g.end, count: g.count, nx: g.nx, ny: g.ny,
+                             members: g.members, min: g.min, max: g.max, flat: g.flat };
+        merged.push(byLabel[g.label]);
+      }
+    });
+
+    var cand = [];
+    merged.forEach(function (g) {
       if (!g.label && g.count < 3) return;             // keep unnamed clutter out
       var txt = groupText(g);
       meas.font = titleFont;
@@ -1403,7 +1528,7 @@ function openMap(m) {
     + (m.chainLen > 1 ? ' · ' + t('d.chain', m.chainLen)
        : m.chainLen === 0 ? ''
        : ' · <span class="warn">' + t('d.isolated') + '</span>')
-    + (m.flat ? ' · ' + t('constant') : '');
+    + (m.flat ? ' · ' + t('constant') : m.nearFlat ? ' · ' + t('nearconstant') : '');
 
   var body = $('d-body'), h = '';
 
@@ -1414,10 +1539,21 @@ function openMap(m) {
        + (m.tag != null ? ' · tag <span class="mono">'
             + m.tag.toString(16).toUpperCase().padStart(4, '0') + '</span>' : '') + '</dd>';
   }
-  if (v.X) h += '<dt>' + t('d.xaxis') + '</dt><dd>' + axisLine(m.xKind, v.X, v.nx) + '</dd>';
+  if (v.X) {
+    var alt = altKinds(v.X, S.rules, m.xKind);
+    h += '<dt>' + t('d.xaxis') + '</dt><dd>' + axisLine(m.xKind, v.X, v.nx)
+       + (m.xKindInferred ? ' <span class="warn">' + t('d.inferred') + '</span>' : '')
+       + (alt.length ? '<br><span style="color:var(--ink-3)">'
+            + t('d.alsofits', alt.map(kindNameOf).join(', ')) + '</span>' : '')
+       + '</dd>';
+  }
   else h += '<dt>' + t('d.xaxis') + '</dt><dd style="color:var(--ink-3)">' + t('d.noaxes') + '</dd>';
   if (v.Y && m.ny > 1) {
-    h += '<dt>' + t('d.yaxis') + '</dt><dd>' + axisLine(m.yKind, v.Y, v.ny) + '</dd>';
+    var altY = altKinds(v.Y, S.rules, m.yKind);
+    h += '<dt>' + t('d.yaxis') + '</dt><dd>' + axisLine(m.yKind, v.Y, v.ny)
+       + (altY.length ? '<br><span style="color:var(--ink-3)">'
+            + t('d.alsofits', altY.map(kindNameOf).join(', ')) + '</span>' : '')
+       + '</dd>';
   }
   h += '<dt>' + t('d.values') + '</dt><dd>' + valueLine(m, r) + '</dd>';
   if (r) {
@@ -1569,6 +1705,10 @@ function showList() {
       + '<td class="n">' + scoreChip(m.score) + '</td></tr>';
   });
   html += '</table></div>';
+  html = '<input id="mfind" placeholder="' + t('list.find')
+       + '" style="width:100%;margin-bottom:10px;padding:7px 10px;border-radius:7px;'
+       + 'border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);font:inherit">'
+       + html;
   openModal(t('maplist'), t('list.sub', S.maps.length, tableWord(S.maps.length), named),
     html, [{ label: t('list.export'), fn: function () {
       var rows = ['address,nx,ny,name,x_kind,y_kind,raw_min,raw_max,constant,chain_len,'
@@ -1581,6 +1721,19 @@ function showList() {
       });
       download('neo-finder-maps.csv', rows.join('\n'), 'text/csv');
     } }]);
+  (function () {
+    var box = $('mfind');
+    if (!box) return;
+    box.addEventListener('input', function () {
+      var q = box.value.toLowerCase().trim();
+      var rows = $('m-body').querySelectorAll('table.rep tr');
+      for (var i = 1; i < rows.length; i++) {
+        rows[i].hidden = q ? rows[i].textContent.toLowerCase().indexOf(q) < 0 : false;
+      }
+    });
+    box.focus();
+  })();
+
   $('m-body').addEventListener('click', function (e) {
     var tr = e.target.closest('tr[data-i]');
     if (!tr) return;
@@ -1781,6 +1934,11 @@ $('home').addEventListener('click', goHome);
 $('zoom-in').addEventListener('click', function () { setZoom(1); });
 $('zoom-out').addEventListener('click', function () { setZoom(-1); });
 $('onlymaps').addEventListener('change', renderStrips);
+$('tuned').addEventListener('change', function () {
+  S.tuned = $('tuned').checked;
+  if (!S.bytes) return;
+  classifyAll(); updateChips(); renderStrips();
+});
 $('c-file').addEventListener('click', function () { if (S.ident) showIdent(); });
 $('btn-list').addEventListener('click', showList);
 $('btn-png').addEventListener('click', exportPNG);

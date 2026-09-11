@@ -42,6 +42,9 @@ Open a file with the button, or drag one anywhere onto the page.
 - Detects the container family (EDC16 or EDC15), word size and endianness by
   trying each and keeping whichever covers the most bytes — silently, with no
   control to get wrong
+- **Tuned-file mode** widens the expected value ranges, so a modified file
+  still matches its rules instead of falling through unnamed
+- Filter the map list by name, address or axis kind
 - Exports the map list as CSV and the whole view as PNG
 - **English and Bulgarian**, including the map names, units and canvas labels.
   Follows the browser locale on first visit, then remembers the toggle
@@ -239,6 +242,24 @@ agreement in Bulgarian.
 
 To add a language: copy the `en` block, translate it, add a matching `bg`-style
 block to each rule, and extend `UNITS`. Nothing else needs touching.
+
+### 3. Consensus from the EDC15 tag
+
+Because the tag names the input, every curve carrying it shares one axis — far
+more evidence than a single axis gives on its own. Where most members of a tag
+agree on a kind, members whose own values were ambiguous inherit it, marked as
+inferred so the panel can say the classification came from siblings rather than
+from the values. On the reference EDC15 file that resolves 64 further axes and
+takes unresolved X axes from 150 down to 86.
+
+### Showing ambiguity instead of guessing it
+
+Some axes genuinely fit more than one fingerprint. An injection-quantity axis
+of 0…3750 in even steps is indistinguishable from a torque axis without a
+definition file: of 323 iq-classified axes on the reference file, 14 sit inside
+ZedSuite's torque window, and 123 of the *other* 309 are just as evenly spaced.
+So `torque` exists as an **advisory** kind — never assigned, listed under "also
+consistent with" — rather than being picked on a coin flip.
 
 ## Confidence
 
