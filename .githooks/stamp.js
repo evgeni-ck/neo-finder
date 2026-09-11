@@ -12,8 +12,10 @@
  */
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const root = path.resolve(__dirname, '..');
-const js = fs.readFileSync(path.join(root, 'neo.js'));
-const v = crypto.createHash('sha1').update(js).digest('hex').slice(0, 8);
+/* Hash with line endings normalised: git autocrlf gives a Windows checkout CRLF
+ * and every other one LF, and the stamp must not depend on which. */
+const js = fs.readFileSync(path.join(root, 'neo.js'), 'utf8').replace(/\r\n/g, '\n');
+const v = crypto.createHash('sha1').update(js, 'utf8').digest('hex').slice(0, 8);
 const htmlPath = path.join(root, 'index.html');
 const html = fs.readFileSync(htmlPath, 'utf8');
 const stamped = html.replace(/<script src="neo\.js(?:\?v=[0-9a-f]*)?"><\/script>/,
