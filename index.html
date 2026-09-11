@@ -5,7 +5,21 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>neo-finder</title>
 <style>
-:root{
+/* Dark is the base, not an override, so there is no light flash before the
+   script runs and no dependence on the OS setting. Light is opt-in via the
+   toggle, which stamps data-theme="light" and remembers it. */
+:root, :root[data-theme="dark"]{
+  color-scheme: dark;
+  --surface:#0f0f0e; --panel:#181817; --panel-2:#212120;
+  --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8b8a85;
+  --line:#2c2c2a; --line-2:#3f3f3c;
+  --accent:#d95926; --accent-ink:#f08a5d;
+  --band-map:#3a3520; --band-flat:#262624;
+  --trace:#5598e7;
+  --good:#0ca30c; --crit:#d03b3b;
+  --s1:#cde2fb; --s4:#86b6ef; --s7:#3987e5; --s10:#1c5cab; --s13:#0d366b;
+}
+:root[data-theme="light"]{
   color-scheme: light;
   --surface:#fcfcfb; --panel:#ffffff; --panel-2:#f6f5f2;
   --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#8b8a85;
@@ -13,28 +27,6 @@
   --accent:#eb6834; --accent-ink:#a8410f;
   --band-map:#fdf3cf; --band-flat:#f0efec;
   --trace:#1c5cab;
-  --good:#0ca30c; --crit:#d03b3b;
-  --s1:#cde2fb; --s4:#86b6ef; --s7:#3987e5; --s10:#1c5cab; --s13:#0d366b;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    color-scheme: dark;
-    --surface:#1a1a19; --panel:#222221; --panel-2:#2a2a28;
-    --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8b8a85;
-    --line:#383835; --line-2:#4a4a46;
-    --accent:#d95926; --accent-ink:#f08a5d;
-    --band-map:#3a3520; --band-flat:#2e2e2b;
-    --trace:#5598e7;
-  }
-}
-:root[data-theme="dark"]{
-  color-scheme: dark;
-  --surface:#1a1a19; --panel:#222221; --panel-2:#2a2a28;
-  --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8b8a85;
-  --line:#383835; --line-2:#4a4a46;
-  --accent:#d95926; --accent-ink:#f08a5d;
-  --band-map:#3a3520; --band-flat:#2e2e2b;
-  --trace:#5598e7;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--surface);color:var(--ink);

@@ -1792,11 +1792,18 @@ document.addEventListener('keydown', function (e) {
   closeModal();
   $('drawer').classList.remove('open');
 });
+/* Dark unless the viewer has explicitly chosen light. The choice persists;
+ * before this the toggle was lost on every reload. */
+function applyTheme(mode) {
+  document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : 'dark');
+  try { localStorage.setItem('neo-finder.theme', mode); } catch (e) { /* private mode */ }
+  $('theme').textContent = mode === 'light' ? '☼' : '☽';
+  if (S.bytes) renderStrips();
+}
+
 $('theme').addEventListener('click', function () {
   var cur = document.documentElement.getAttribute('data-theme');
-  var dark = cur === 'dark' || (!cur && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
-  if (S.bytes) renderStrips();
+  applyTheme(cur === 'light' ? 'dark' : 'light');
 });
 /* A width change alters the label collision plan, not just the pixels, so the
  * strips are re-planned rather than merely redrawn. */
@@ -1822,6 +1829,12 @@ document.addEventListener('drop', function (e) {
 
 /* Saved choice wins; otherwise follow the browser, so a Bulgarian browser
  * lands on Bulgarian without touching anything. */
+(function initTheme() {
+  var saved = null;
+  try { saved = localStorage.getItem('neo-finder.theme'); } catch (e) { /* private mode */ }
+  applyTheme(saved === 'light' ? 'light' : 'dark');
+})();
+
 (function initLang() {
   var saved = null;
   try { saved = localStorage.getItem('neo-finder.lang'); } catch (e) { /* private mode */ }
