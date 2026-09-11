@@ -507,6 +507,10 @@ var STRINGS = {
     'kind.gear': 'gear',
     'kind.airmass': 'air mass',
     'kind.torque': 'torque',
+    'kind.adc': 'sensor counts (10-bit)',
+    'kind.boost': 'requested boost',
+    'kind.percent': 'duty (10000 = 100 %)',
+    'kind.vspeed': 'vehicle speed',
     'nearconstant': 'near-constant',
     'tuned': 'tuned file',
     'tuned.title': 'Widen the expected value ranges, so a modified file still matches its rules',
@@ -608,6 +612,10 @@ var STRINGS = {
     'kind.gear': 'предавка',
     'kind.airmass': 'масов въздушен поток',
     'kind.torque': 'въртящ момент',
+    'kind.adc': 'отчети от сензор (10-битови)',
+    'kind.boost': 'заявено наддаване',
+    'kind.percent': 'запълване (10000 = 100 %)',
+    'kind.vspeed': 'скорост на автомобила',
     'nearconstant': 'почти постоянна',
     'tuned': 'тунингован файл',
     'tuned.title': 'Разширява очакваните обхвати, за да пасне и модифициран файл',
@@ -633,7 +641,8 @@ var STRINGS = {
 /* Units: symbols that are already international stay put; the rest translate. */
 var UNITS = {
   bg: { 'mg/stroke': 'mg/ход', 'bar': 'бар', 'mbar abs': 'mbar абс.', '°CA': '° ъгъл',
-        'rpm': 'об/мин', 'raw': 'сурови' }
+        'rpm': 'об/мин', 'raw': 'сурови', '° BTDC': '° преди ГМТ', 'kg/h': 'кг/ч',
+        'km/h': 'км/ч', 'counts': 'отчети', 'mbar': 'mbar', 'Nm': 'Nm', '%': '%', 'λ': 'λ' }
 };
 
 var LANG = 'en';
@@ -709,6 +718,21 @@ var DEFAULT_RULES = {
      * reading and never assigned. */
     { kind: 'torque', role: 'any', unit: 'Nm', factor: 0.1, advisory: true,
       test: { minPoints: 14, firstMax: 150, lastMin: 2000, lastMax: 5000 } },
+    /* A sensor linearisation curve is indexed by raw ADC counts. 0…1023 over 16+
+     * points is unambiguous - nothing physical spans exactly a 10-bit range. */
+    { kind: 'adc', role: 'any', unit: 'counts', factor: 1,
+      test: { minPoints: 16, firstMax: 8, lastMin: 1000, lastMax: 1023 } },
+    /* Requested boost as an input (ZedSuite "pressure_mbar" in the Y position):
+     * starts near ambient, ends well above it. Never starts at 0, so it cannot
+     * take an injection-quantity axis. */
+    { kind: 'boost', role: 'y', strict: true, unit: 'mbar', factor: 1,
+      test: { minPoints: 5, firstMin: 900, firstMax: 1500, lastMin: 1500, lastMax: 4000 } },
+    /* Duty or position on the 10000 = 100 % scale (EDC15 N75, VAG pedal). */
+    { kind: 'percent', role: 'y', strict: true, unit: '%', factor: 0.01,
+      test: { minPoints: 5, firstMax: 500, lastMin: 9000, lastMax: 10000 } },
+    /* Vehicle speed, raw × 0.15625 km/h: 0 to 100…250 km/h. */
+    { kind: 'vspeed', role: 'y', strict: true, unit: 'km/h', factor: 0.15625,
+      test: { minPoints: 12, firstMax: 64, lastMin: 640, lastMax: 1600 } },
     { kind: 'index', role: 'any', unit: '', factor: 1, test: { lastMax: 64 } }
   ],
   /* First match wins, so order is the disambiguation mechanism. trendX/trendY
@@ -728,6 +752,13 @@ var DEFAULT_RULES = {
       note: 'a large plateau exactly at the maximum is the pump limit, not a setpoint',
       bg: { label: 'Задание за налягане в рейката',
             note: 'голямо плато точно на максимума е ограничението на помпата, а не задание' } },
+
+    { label: 'Injection timing', x: 'rpm', y: 'iq', family: 'edc15',
+      dataMin: [900, 1900], dataMax: [2000, 3200], trendX: 'down',
+      unit: '° BTDC', factor: -0.0234375, offset: 78, confidence: 'medium',
+      note: 'EDC15 stores start of injection inverted: 78 − raw × 1.5/64 gives degrees before TDC (ZedSuite EDC15P "SOI")',
+      bg: { label: 'Момент на впръскване',
+            note: 'EDC15 записва момента обърнато: 78 − raw × 1.5/64 дава градуси преди ГМТ' } },
 
     { label: 'Injection timing', x: 'rpm', y: 'iq',
       dataMin: [900, 1900], dataMax: [2000, 3200], trendX: 'down',
@@ -756,6 +787,30 @@ var DEFAULT_RULES = {
       bg: { label: 'Запълване / позиция',
             note: '8192 = 100 %, т.е. нормализирана заявка към изпълнителен механизъм' } },
 
+    /* ---- Adopted from ZedSuite's EDC15P / EDC16U31 signature databases. ----
+     * Their shape knowledge (dimensions, family) is kept; value ranges are mine.
+     * None of these fire on the two reference files, so they are unverified
+     * there and carry low confidence. */
+    { label: 'Start quantity (cold start)', x: 'rpm', y: 'coolant',
+      nx: [8, 10], ny: [8, 9], dataMax: [500, 6000], trendY: 'down',
+      unit: 'mg/stroke', factor: 0.01, confidence: 'low',
+      note: 'ZedSuite EDC15P "Start IQ": 8–10 rpm × 8–9 coolant, quantity falls as the engine warms',
+      bg: { label: 'Стартово количество (студен старт)',
+            note: 'ZedSuite EDC15P „Start IQ“: 8–10 об/мин × 8–9 температура, количеството пада със загряването' } },
+
+    { label: 'Injection timing limiter (temperature)', x: 'rpm', y: 'coolant', family: 'edc15',
+      nx: [14, 14], ny: [11, 11], dataMin: [1500, 3000], dataMax: [2000, 3400],
+      unit: '° BTDC', factor: -0.0234375, offset: 78, confidence: 'low',
+      note: 'ZedSuite EDC15P "SOI limiter": 14 rpm × 11 temperature, stored inverted like the timing map',
+      bg: { label: 'Ограничител на момента на впръскване (температура)',
+            note: 'ZedSuite EDC15P „SOI limiter“: 14 об/мин × 11 температура, записан обърнато като картата на момента' } },
+
+    { label: 'Boost correction by intake temperature', live: true, x: 'coolant', y: 'boost',
+      nx: [10, 10], ny: [16, 16], unit: 'mbar', factor: 1, confidence: 'low',
+      note: 'ZedSuite EDC15P "Boost correction by temperature": 10 intake-air temperature × 16 requested boost',
+      bg: { label: 'Корекция на наддаването по температура на въздуха',
+            note: 'ZedSuite EDC15P: 10 температура на въздуха × 16 заявено наддаване' } },
+
     { label: 'Temperature correction', x: 'rpm', y: 'coolant',
       unit: 'raw', factor: 1, confidence: 'medium',
       note: 'coolant-indexed trim, typically cold-running enrichment or timing',
@@ -779,7 +834,104 @@ var DEFAULT_RULES = {
       dataMax: [2500, 5000], trendX: 'down', unit: 'mg/stroke', factor: 0.01,
       confidence: 'low', note: 'upper bound on quantity indexed by quantity itself; the real smoke limiter is indexed by air mass',
       bg: { label: 'Таван на количеството впръскване',
-            note: 'горна граница на количеството; истинският ограничител на дима е индексиран по въздушна маса' } }
+            note: 'горна граница на количеството; истинският ограничител на дима е индексиран по въздушна маса' } },
+
+    { label: 'Smoke limiter (quantity by air mass)', x: 'rpm', y: 'airmass',
+      ny: [10, 13], dataMin: [0, 800], dataMax: [1500, 8000], trendY: 'up',
+      unit: 'mg/stroke', factor: 0.01, confidence: 'low',
+      note: 'ZedSuite EDC15P "IQ by MAF limiter": 16 rpm × 10–13 air mass, the quantity ceiling rises with available air',
+      bg: { label: 'Ограничител на дима (количество по въздушна маса)',
+            note: 'ZedSuite EDC15P „IQ by MAF limiter“: 16 об/мин × 10–13 въздушна маса, таванът расте с наличния въздух' } },
+
+    { label: 'Smoke limiter (lambda)', x: 'rpm', y: 'airmass',
+      ny: [10, 16], dataMin: [700, 1300], dataMax: [1000, 2500],
+      unit: 'λ', factor: 0.001, confidence: 'low',
+      note: 'ZedSuite EDC16U31 "Smoke Limiter by Lambda": 16 rpm × 13–16 air mass, minimum air/fuel ratio × 1000. On the reference EDC16 file: four 16 × 16 maps reading 0.80…1.33 λ',
+      bg: { label: 'Ограничител на дима (ламбда)',
+            note: 'ZedSuite EDC16U31 „Smoke Limiter by Lambda“: 16 об/мин × 13–16 въздушна маса, минимална ламбда × 1000. В референтния EDC16 файл: четири карти 16 × 16 с 0.80…1.33 λ' } },
+
+    { label: 'Boost limiter (altitude)', x: 'rpm', y: 'ambient',
+      nx: [9, 11], ny: [10, 10], dataMin: [500, 1500], dataMax: [1500, 4000],
+      unit: 'mbar abs', factor: 1, confidence: 'low',
+      note: 'ZedSuite "Boost Limiter (Altitude)" / EDC15P "Boost limit map": 10 rpm × 10 ambient pressure',
+      bg: { label: 'Ограничител на наддаването (височина)',
+            note: 'ZedSuite „Boost Limiter (Altitude)“: 10 об/мин × 10 атмосферно налягане' } },
+
+    { label: 'Torque limiter (altitude)', live: true, x: 'rpm', y: 'ambient', family: 'edc16',
+      nx: [20, 22], ny: [3, 4], unit: 'Nm', factor: 0.1, confidence: 'low',
+      note: 'ZedSuite EDC16U31 "Torque Limiter": 20–22 rpm × 3–4 ambient pressure, in 0.1 Nm',
+      bg: { label: 'Ограничител на момента (височина)',
+            note: 'ZedSuite EDC16U31 „Torque Limiter“: 20–22 об/мин × 3–4 атмосферно налягане, в 0.1 Nm' } },
+
+    { label: 'Quantity limiter (altitude)', live: true, x: 'rpm', y: 'ambient', family: 'edc15',
+      nx: [20, 24], ny: [3, 3], unit: 'mg/stroke', factor: 0.01, confidence: 'low',
+      note: 'ZedSuite EDC15P "Torque limiter": 20–24 rpm × 3 ambient pressure, output is a quantity ceiling in 0.01 mg',
+      bg: { label: 'Ограничител на количеството (височина)',
+            note: 'ZedSuite EDC15P „Torque limiter“: 20–24 об/мин × 3 атмосферно налягане, таван на количеството в 0.01 mg' } },
+
+    { label: 'Overboost protection limit', x: 'rpm', y: 'percent',
+      nx: [10, 10], ny: [10, 10], dataMax: [1500, 4000],
+      unit: 'mbar abs', factor: 1, confidence: 'low',
+      note: 'ZedSuite EDC15P "Limit of overboost protection": 10 rpm × 10 actuator duty',
+      bg: { label: 'Граница на защитата от свръхнаддаване',
+            note: 'ZedSuite EDC15P: 10 об/мин × 10 запълване на актуатора' } },
+
+    { label: 'Launch control', live: true, x: 'rpm', y: 'vspeed',
+      nx: [20, 25], ny: [10, 14], unit: 'mg/stroke', factor: 0.01, confidence: 'low',
+      note: 'ZedSuite EDC15P "Launch control": 25 rpm × 14 vehicle speed, a quantity limit',
+      bg: { label: 'Контрол на потеглянето',
+            note: 'ZedSuite EDC15P „Launch control“: 25 об/мин × 14 скорост, ограничение на количеството' } },
+
+    { label: 'Fuel volume correction', live: true, x: 'rpm', y: 'iq',
+      dims: [[8, 9]], unit: 'mg/stroke', factor: 0.002441, confidence: 'low',
+      note: 'ZedSuite EDC15P "Fuel volume correction": 8 rpm × 9 quantity, correction per 100 000 km',
+      bg: { label: 'Корекция на обема гориво',
+            note: 'ZedSuite EDC15P: 8 об/мин × 9 количество, корекция на 100 000 км' } },
+
+    { label: 'Minimum injection break', live: true, x: 'rpm', y: 'iq',
+      dims: [[6, 4]], unit: '°CA', factor: 0.0234375, confidence: 'low',
+      note: 'ZedSuite EDC16U31 "Min Injection Break": 6 rpm × 4 quantity',
+      bg: { label: 'Минимална пауза между впръскванията',
+            note: 'ZedSuite EDC16U31 „Min Injection Break“: 6 об/мин × 4 количество' } },
+
+    /* Every injector-duration shape both databases list, in my orientation
+     * (nx = speed points, ny = quantity points). 16 × 16 is deliberately absent:
+     * that is the shape of the main maps and is claimed by the rules above. */
+    { label: 'Injector duration', live: true, x: 'rpm', y: 'iq',
+      dims: [[10, 10], [9, 10], [10, 9], [9, 9], [11, 9], [8, 10], [15, 12], [15, 13],
+             [16, 15], [17, 15], [18, 15], [19, 15]],
+      dataMin: [0, 4000], unit: '°CA', factor: 0.0234375, confidence: 'low',
+      note: 'ZedSuite "Duration" / "Injector duration": speed × quantity in the shapes both databases list, energising time in crank degrees',
+      bg: { label: 'Продължителност на впръскване',
+            note: 'ZedSuite „Duration“ / „Injector duration“: обороти × количество в изброените форми, време на впръскване в градуси' } },
+
+    /* The torque axis is advisory (see axisKinds), so this is the one rule that
+     * asks for it by name: a speed × torque-shaped map of quantities. */
+    { label: 'Torque → quantity conversion', x: 'rpm', y: 'torque',
+      nx: [15, 16], ny: [16, 18], dataMax: [3000, 9000], trendY: 'up',
+      unit: 'mg/stroke', factor: 0.01, confidence: 'low',
+      note: 'ZedSuite EDC16U31 "Torque to IQ Conversion": 15–16 rpm × 16–18 torque; the Y axis only fits torque advisorily',
+      bg: { label: 'Преобразуване момент → количество',
+            note: 'ZedSuite EDC16U31 „Torque to IQ Conversion“: 15–16 об/мин × 16–18 момент; оста Y отговаря на момент само предположително' } },
+
+    { label: 'EGR hysteresis', dim: 'curve', x: 'rpm',
+      nx: [20, 20], dataMax: [10, 2000], unit: 'mg/stroke', factor: 0.01, confidence: 'low',
+      note: 'ZedSuite EDC16U31 "EGR Hysteresis": 20-point curve on rpm, in 0.01 mg/stroke',
+      bg: { label: 'Хистерезис на EGR',
+            note: 'ZedSuite EDC16U31 „EGR Hysteresis“: крива от 20 точки по обороти, в 0.01 mg/ход' } },
+
+    { label: 'Boost actuator upper limit (N75)', dim: 'curve', x: 'rpm',
+      nx: [16, 16], dataMin: [3000, 9000], dataMax: [5000, 10000],
+      unit: '%', factor: 0.01, confidence: 'low',
+      note: 'ZedSuite EDC15P "Boost actuator upper limit curve (N75)": 16-point curve on rpm, duty on the 10000 = 100 % scale',
+      bg: { label: 'Горна граница на актуатора (N75)',
+            note: 'ZedSuite EDC15P: крива от 16 точки по обороти, запълване в скала 10000 = 100 %' } },
+
+    { label: 'Air-mass sensor linearisation', live: true, dim: 'curve', x: 'adc',
+      nx: [32, 32], unit: 'kg/h', factor: 0.1, confidence: 'low',
+      note: 'ZedSuite EDC16U31 "MAF Linearization": 32-point curve from raw sensor counts to air flow',
+      bg: { label: 'Линеаризация на дебитомера',
+            note: 'ZedSuite EDC16U31 „MAF Linearization“: крива от 32 точки от отчети на сензора към дебит' } }
   ]
 };
 
@@ -876,6 +1028,7 @@ var RuleEngine = (function () {
       var k = rules.axisKinds[i], t = k.test || {};
       if (k.advisory) continue;                 // advisory kinds never win
       if (role && role !== 'any' && k.role && k.role !== 'any' && k.role !== role) continue;
+      if (k.strict && role !== k.role) continue;
       if (t.minPoints != null && axis.length < t.minPoints) continue;
       if (t.firstMin != null && first < t.firstMin) continue;
       if (t.firstMax != null && first > t.firstMax) continue;
@@ -909,7 +1062,16 @@ var RuleEngine = (function () {
 
   function want(dir) { return dir === 'up' ? 1 : dir === 'down' ? -1 : 0; }
 
-  function classify(view, rules, tuned) {
+  /* An advisory kind is never assigned to an axis, but a rule may still ask for
+   * it: the torque→quantity map is only recognisable by a torque-shaped Y axis. */
+  function advisoryKind(rules, name) {
+    for (var i = 0; i < rules.axisKinds.length; i++) {
+      if (rules.axisKinds[i].kind === name && rules.axisKinds[i].advisory) return rules.axisKinds[i];
+    }
+    return null;
+  }
+
+  function classify(view, rules, tuned, family) {
     if (!view.X) return { xKind: null, yKind: null, rule: null };   // bare block
     var xk = kindOf(view.X, rules, view.form === 'grid' ? 'x' : 'any');
     var yk = view.Y && view.ny > 1 ? kindOf(view.Y, rules, 'y') : null;
@@ -921,9 +1083,23 @@ var RuleEngine = (function () {
        * curves, so every rule requiring a Y axis silently never fired. */
       if (r.dim === 'curve' && !(view.ny === 1 && view.form !== 'axis')) continue;
       if (r.dim === 'map' && view.ny === 1) continue;
+      /* Rules adopted from a signature database carry that database's shape
+       * knowledge: exact dimensions and which ECU family the map exists in. */
+      if (r.family && family && r.family !== family) continue;
+      if (r.live && view.min === view.max) continue;
+      if (r.nx && (view.nx < r.nx[0] || view.nx > r.nx[1])) continue;
+      if (r.ny && (view.ny < r.ny[0] || view.ny > r.ny[1])) continue;
+      if (r.dims) {
+        var okDim = false;
+        for (var d = 0; d < r.dims.length; d++) if (r.dims[d][0] === view.nx && r.dims[d][1] === view.ny) { okDim = true; break; }
+        if (!okDim) continue;
+      }
       if (r.x === 'any') { if (!xk) continue; }
       else if (r.x && (!xk || xk.kind !== r.x)) continue;
-      if (r.y && (!yk || yk.kind !== r.y)) continue;
+      if (r.y && (!yk || yk.kind !== r.y)) {
+        var adv = advisoryKind(rules, r.y);
+        if (!adv || !view.Y || !fits(view.Y, adv)) continue;
+      }
       /* A modified file legitimately exceeds stock ranges, so every range
        * check is mis-calibrated for one unless it is widened. */
       var lo = tuned ? 0.7 : 1, hi = tuned ? 1.3 : 1;
@@ -1070,7 +1246,7 @@ function classifyAll() {
   S.maps = S.result.maps;
   for (var i = 0; i < S.maps.length; i++) {
     var m = S.maps[i], v = viewOf(m);
-    var c = RuleEngine.classify(v, S.rules, S.tuned);
+    var c = RuleEngine.classify(v, S.rules, S.tuned, S.result.family);
     m.rule = c.rule; m.xKind = c.xKind; m.yKind = c.yKind;
     m.label = ruleLabel(c.rule);          // display label in the current language
     /* EDC15 records get their name from the axis, not from a map rule: the tag

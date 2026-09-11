@@ -157,6 +157,15 @@ rather than logic. Recognition is universal; naming is per-ECU-family.
 | starts under 5000, ends 6000–40000 | air mass, raw/10 = mg/stroke |
 | 500–980 rising to 990–1300 | ambient pressure, mbar |
 | 4–12 points, none above 16 | gear or mode index |
+| 16+ points, 0 rising to exactly 1000–1023 | raw sensor counts (10-bit ADC), the input of a linearisation curve |
+| Y only: 900–1500 rising to 1500–4000 | requested boost, mbar |
+| Y only: under 500 rising to 9000–10000 | duty or position on the `10000 = 100 %` scale |
+| Y only, 12+ points: under 64 rising to 640–1600 | vehicle speed, raw × 0.15625 = km/h |
+
+The last three are **strict**: they match only in the Y position. A curve's
+single axis is classified without a position, and a 16-point sensor curve
+running 51…1012 is not a vehicle-speed axis just because its numbers fall in
+that window.
 
 Each kind carries a **role** of `x`, `y` or `any`, and this turned out to matter
 more than the value ranges. An injection-quantity axis of 400…5000 is
@@ -189,6 +198,53 @@ DAMOS or A2L is embedded in these files, so labels are a reading of the numbers.
 Rules carry a confidence level, shown in the detail panel alongside a note. The
 loose ones — `Duty / position` in particular — will over-match; tighten their
 ranges in `DEFAULT_RULES`.
+
+### Rules adopted from ZedSuite
+
+[ZedSuite](https://github.com/) ships curated signature databases for Bosch
+EDC15P and EDC16U31 (VAG): real DAMOS names with the dimensions, axis inputs
+and scalings each map has on those ECUs. Every rule from those databases that
+this container can express is in the pack, marked in its note with the
+ZedSuite name it came from:
+
+| Rule | Shape (speed × load) | Output |
+|---|---|---|
+| Smoke limiter (lambda) | 16 × 13–16 air mass | λ × 1000 |
+| Smoke limiter (quantity by air mass) | 16 × 10–13 air mass, rising | 0.01 mg/stroke |
+| Boost limiter (altitude) | 9–11 × 10 ambient | mbar |
+| Torque limiter (altitude) — EDC16 | 20–22 × 3–4 ambient | 0.1 Nm |
+| Quantity limiter (altitude) — EDC15 | 20–24 × 3 ambient | 0.01 mg/stroke |
+| Torque → quantity conversion | 15–16 × 16–18 torque-shaped | 0.01 mg/stroke |
+| Injector duration | the 12 shapes both databases list, never 16 × 16 | 1.5/64 °CA |
+| Minimum injection break | 6 × 4 | 1.5/64 °CA |
+| Fuel volume correction | 8 × 9 | 0.002441 mg/stroke |
+| Start quantity (cold start) | 8–10 × 8–9 coolant, falling with temperature | 0.01 mg/stroke |
+| Injection timing limiter (temperature) — EDC15 | 14 × 11 coolant | 78 − raw × 1.5/64 ° BTDC |
+| Boost correction by intake temperature | 10 temperature × 16 requested boost | mbar |
+| Overboost protection limit | 10 × 10 duty | mbar |
+| Launch control | 20–25 × 10–14 vehicle speed | 0.01 mg/stroke |
+| EGR hysteresis | 20-point curve on rpm | 0.01 mg/stroke |
+| Boost actuator upper limit (N75) | 16-point curve on rpm | 0.01 % |
+| Air-mass sensor linearisation | 32-point curve on ADC counts | 0.1 kg/h |
+
+Three engine additions carry them: a rule may name exact **dimensions** (`nx`,
+`ny`, `dims`), an ECU **family** (`edc15` / `edc16` — the EDC15 stores injection
+timing inverted, `78 − raw × 1.5/64`, so the timing rules exist in both forms),
+and an **advisory** axis kind: the torque → quantity map is the one rule that
+asks for the torque kind by name, since torque is otherwise never assigned to
+an axis. Shape-only rules are also marked `live` so a 10 × 10 block of constant
+500s is not called an injector-duration map.
+
+Their shape knowledge is kept; the value ranges are mine, and all of them carry
+**low** confidence. On the reference files only three fire: the lambda smoke
+limiter (four 16 × 16 maps on the EDC16 reading 0.80…1.33 λ), three injector
+duration maps, and the N75 upper-limit curve on the EDC15. Everything else is
+shaped for VAG images this project has not seen, and says so in its note.
+
+Not adoptable: scalars and 1 × 2 records (`Max Boost`, `DPF Switch`, `Idle
+RPM`, the selectors, `MAP linearization`) — the container needs `nx ≥ 3` — and
+the `BIP SOI correction` map, whose crank-angle input axis has no fingerprint
+that separates it from a timing table.
 
 ## File identification
 
