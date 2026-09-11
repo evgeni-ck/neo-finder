@@ -21,6 +21,23 @@ back to the main thread automatically.
 
 Open a file with the button, or drag one anywhere onto the page.
 
+### Cache-busting on deploy
+
+GitHub Pages serves everything with `Cache-Control: max-age=600`, so after a
+push a browser can keep running the old `neo.js` against the new page. The
+script tag therefore carries a version — `neo.js?v=<hash>` — where the hash is
+the first eight hex digits of the SHA-1 of `neo.js`: a new URL whenever the
+script changes, the same URL when it does not. `.githooks/stamp.js` writes it;
+the committed pre-commit hook runs it whenever `neo.js` is in the commit. Enable
+the hook once per clone:
+
+```
+git config core.hooksPath .githooks
+```
+
+`index.html` itself is small and still subject to the ten-minute window, which
+is a property of Pages rather than of this repository.
+
 ## What it does
 
 - **Identifies the file**: MD5, CRC32 and SHA-256, plus the ECU type, controller,

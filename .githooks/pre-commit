@@ -1,0 +1,8 @@
+#!/bin/sh
+# Re-stamp the script URL in index.html whenever neo.js is part of the commit,
+# so a deploy never serves a stale cached neo.js. Enable once per clone with:
+#     git config core.hooksPath .githooks
+if git diff --cached --name-only | grep -qx 'neo.js'; then
+  node "$(git rev-parse --show-toplevel)/.githooks/stamp.js" || exit 1
+  git add index.html
+fi
