@@ -731,10 +731,10 @@ var DEFAULT_RULES = {
 
     { label: 'Injection timing', x: 'rpm', y: 'iq',
       dataMin: [900, 1900], dataMax: [2000, 3200], trendX: 'down',
-      unit: '°CA', factor: 0.01, confidence: 'medium',
-      note: 'falls with rising speed; pilot or main start-of-injection',
+      unit: '°CA', factor: 0.0234375, confidence: 'medium',
+      note: 'falls with rising speed; pilot or main start-of-injection. Factor is the Bosch crank-angle unit 1.5/64 °',
       bg: { label: 'Момент на впръскване',
-            note: 'намалява с оборотите; начало на пилотното или основното впръскване' } },
+            note: 'намалява с оборотите; начало на пилотното или основното впръскване. Факторът е ъгловата единица на Bosch 1.5/64 °' } },
 
     { label: 'Boost pressure setpoint', x: 'rpm', y: 'iq',
       dataMin: [600, 1500], dataMax: [1700, 3200], trendY: 'up',
@@ -745,7 +745,7 @@ var DEFAULT_RULES = {
 
     { label: 'EGR / air-path setpoint', x: 'rpm', y: 'iq',
       dataMin: [50, 600], dataMax: [1500, 3500], trendY: 'down',
-      unit: 'raw', factor: 1, confidence: 'low',
+      unit: 'mg/stroke', factor: 0.1, confidence: 'low',
       note: 'a hard step rather than a gradient suggests shut-off past a load threshold; could also be a flap actuator',
       bg: { label: 'Задание за EGR / въздушен път',
             note: 'резкият праг вместо плавен преход подсказва изключване след определено натоварване; може да е и клапа' } },
